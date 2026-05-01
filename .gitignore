@@ -1,0 +1,43 @@
+# Binaries
+bedrock-gateway
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Config with secrets (use config.example.yaml as template)
+config.yaml
+keys.json
+
+# Logs and dumps
+*.log
+*.jsonl
+/tmp/
+
+# Captures
+gateway_captures/
+
+# Environment files
+.env
+.env.*
+!.env.example
