@@ -146,13 +146,15 @@ async function runChannel() {
   document.getElementById('channelLoading').classList.remove('hidden');
 
   try {
+    document.getElementById('channelError').classList.add('hidden');
     const p = {...targetPayload(), quick: false};
     const data = await api('/api/channel/run', {method: 'POST', body: JSON.stringify(p)});
     lastChannelResult = data;
     renderChannelResult(data);
   } catch (e) {
-    alert('检测失败: ' + (typeof e === 'string' ? e : JSON.stringify(e)));
-    document.getElementById('channelPlaceholder').classList.remove('hidden');
+    const msg = typeof e === 'string' ? e : (e && e.error ? e.error : JSON.stringify(e));
+    document.getElementById('channelErrorMsg').textContent = msg;
+    document.getElementById('channelError').classList.remove('hidden');
   } finally {
     document.getElementById('channelLoading').classList.add('hidden');
     btn.disabled = false;
