@@ -591,6 +591,23 @@ a { color: var(--accent-deep); text-decoration: none; }
 .subnav button.active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 500; }
 .subnav .frac { font-size: 11px; color: var(--ink-4); font-feature-settings: "tnum"; }
 
+/* ─── Target config bar ─── */
+.target-bar {
+  display: flex; gap: 12px; align-items: end;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.target-field { min-width: 140px; }
+.target-label {
+  font-size: 10.5px; color: var(--ink-3);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
 /* ─── Live status ─── */
 .live {
   display: flex; align-items: center; gap: 14px;

@@ -11,23 +11,15 @@ let intelligenceStreamResults = [];
 let currentCheckFilter = 'all';
 
 /* ─── Settings persistence ─── */
+// Only adminToken is persisted; target/key/model are ephemeral per-session.
 function loadSettings() {
   const s = JSON.parse(localStorage.getItem('llm-probe-settings') || '{}');
-  if (s.targetBase) document.getElementById('targetBase').value = s.targetBase;
-  if (s.targetKey) document.getElementById('targetKey').value = s.targetKey;
-  if (s.model) document.getElementById('model').value = s.model;
   if (s.adminToken) document.getElementById('adminToken').value = s.adminToken;
   updateConnStatus();
 }
 function saveSettings() {
-  const s = {
-    targetBase: document.getElementById('targetBase').value.trim(),
-    targetKey: document.getElementById('targetKey').value.trim(),
-    model: document.getElementById('model').value.trim(),
-    adminToken: document.getElementById('adminToken').value.trim(),
-  };
+  const s = { adminToken: document.getElementById('adminToken').value.trim() };
   localStorage.setItem('llm-probe-settings', JSON.stringify(s));
-  updateConnStatus();
 }
 function updateConnStatus() {
   const base = document.getElementById('targetBase').value.trim();
@@ -45,10 +37,6 @@ function updateConnStatus() {
     el.classList.remove('connected');
     label.textContent = '未配置';
   }
-  // Update live displays
-  document.getElementById('channelLiveTarget').textContent = base || '未配置';
-  document.getElementById('channelLiveModel').textContent =
-    document.getElementById('model').value.trim() || 'claude-opus-4-6';
 }
 
 /* ─── Navigation ─── */
@@ -717,7 +705,6 @@ loadIntelligenceList();
 toggleRunScope();
 updateIntelligencePreview();
 
-// Auto-save settings on input change
-['targetBase', 'targetKey', 'model', 'adminToken'].forEach(id => {
-  document.getElementById(id).addEventListener('change', saveSettings);
-});
+// Auto-save admin token; update conn status on target change
+document.getElementById('adminToken').addEventListener('change', saveSettings);
+document.getElementById('targetBase').addEventListener('input', updateConnStatus);
