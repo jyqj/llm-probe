@@ -1,4 +1,4 @@
-package remediation
+package channeltest
 
 // Fix is a remediation capability recommended by channel checks.
 type Fix string

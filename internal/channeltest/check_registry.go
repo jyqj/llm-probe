@@ -1,6 +1,5 @@
 package channeltest
 
-import "detector-service/internal/channeltest/remediation"
 
 // Category represents a scoring category for channel checks.
 type Category string
@@ -33,7 +32,7 @@ var categoryOrder = []CategoryMeta{
 type CheckMeta struct {
 	Name       string
 	Category   Category
-	DefaultFix remediation.Fix
+	DefaultFix Fix
 }
 
 var checkRegistry = map[string]CheckMeta{
@@ -127,7 +126,7 @@ func buildCheckCategoryMap() map[string]Category {
 	return out
 }
 
-func defaultFixForCheck(name string) remediation.Fix {
+func defaultFixForCheck(name string) Fix {
 	if meta, ok := checkRegistry[name]; ok {
 		return meta.DefaultFix
 	}

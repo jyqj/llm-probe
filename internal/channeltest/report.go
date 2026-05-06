@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"detector-service/internal/channeltest/remediation"
 )
 
 // CheckResult represents the outcome of a single fingerprint check.
@@ -13,7 +11,7 @@ type CheckResult struct {
 	Name   string          `json:"name"`
 	Pass   bool            `json:"pass"`
 	Detail string          `json:"detail"`
-	Fix    remediation.Fix `json:"fix,omitempty"` // neutral remediation item to enable if failed
+	Fix    Fix `json:"fix,omitempty"` // neutral remediation item to enable if failed
 }
 
 // Report is the full result of a channel test suite run.
@@ -23,15 +21,15 @@ type Report struct {
 	Timestamp   time.Time                  `json:"timestamp"`
 	ElapsedMs   int64                      `json:"elapsed_ms"`
 	Checks      []CheckResult              `json:"checks"`
-	Recommended remediation.Recommendation `json:"recommended"`
+	Recommended Recommendation `json:"recommended"`
 	Summary     string                     `json:"summary"`
 	Score       *ScoreReport               `json:"score,omitempty"`
 }
 
 // RecommendFixes builds a minimal neutral recommendation from failed checks.
-func RecommendFixes(checks []CheckResult) remediation.Recommendation {
-	rec := remediation.Recommendation{Enabled: true}
-	seen := map[remediation.Fix]bool{}
+func RecommendFixes(checks []CheckResult) Recommendation {
+	rec := Recommendation{Enabled: true}
+	seen := map[Fix]bool{}
 	for _, c := range checks {
 		if c.Pass {
 			continue
@@ -53,7 +51,7 @@ func RecommendFixes(checks []CheckResult) remediation.Recommendation {
 func BuildSummary(checks []CheckResult) string {
 	passed, total := 0, len(checks)
 	var fixes []string
-	seen := map[remediation.Fix]bool{}
+	seen := map[Fix]bool{}
 	for _, c := range checks {
 		if c.Pass {
 			passed++
