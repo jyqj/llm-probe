@@ -3,192 +3,33 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Claude API Audit</title>
-<style>
-:root{
-  color-scheme:dark;
-  --bg:#07080f;--surface:#0d1117;--card:#131a27;--card-hover:#182036;
-  --border:#1e2d45;--border-light:#2a3f66;
-  --text:#e6edf3;--text-muted:#7d8da1;--text-dim:#4b5a71;
-  --green:#3fb950;--green-bg:rgba(63,185,80,.12);
-  --red:#f85149;--red-bg:rgba(248,81,73,.12);
-  --blue:#58a6ff;--blue-bg:rgba(88,166,255,.12);
-  --yellow:#d29922;--yellow-bg:rgba(210,153,34,.12);
-  --orange:#f0883e;--orange-bg:rgba(240,136,62,.12);
-  --purple:#bc8cff;--purple-bg:rgba(188,140,255,.12);
-  --accent:#58a6ff;
-  --radius:12px;--radius-sm:8px;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;min-height:100vh}
-a{color:var(--accent);text-decoration:none}
-button{font-family:inherit;cursor:pointer;border:none;font-size:13px;font-weight:600;border-radius:var(--radius-sm);padding:8px 16px;transition:all .15s}
-input,select{font-family:inherit;font-size:13px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;width:100%;outline:none;transition:border-color .15s}
-input:focus,select:focus{border-color:var(--accent)}
-
-/* ─── Layout ─── */
-.app{display:flex;min-height:100vh}
-.sidebar{width:220px;background:var(--surface);border-right:1px solid var(--border);padding:20px 0;flex-shrink:0;display:flex;flex-direction:column}
-.sidebar-logo{padding:0 20px 20px;font-size:16px;font-weight:700;color:var(--text);border-bottom:1px solid var(--border)}
-.sidebar-logo span{color:var(--accent)}
-.sidebar nav{flex:1;padding:12px 8px}
-.sidebar nav button{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;background:none;color:var(--text-muted);font-weight:500;border-radius:var(--radius-sm);text-align:left;font-size:13px}
-.sidebar nav button:hover{background:var(--card);color:var(--text)}
-.sidebar nav button.active{background:var(--blue-bg);color:var(--accent)}
-.sidebar nav button svg{width:16px;height:16px;flex-shrink:0}
-.sidebar-footer{padding:12px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--text-dim)}
-
-.main{flex:1;overflow-y:auto;padding:24px 32px}
-.main-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
-.main-header h1{font-size:22px;font-weight:700}
-
-/* ─── Config Bar ─── */
-.config-bar{display:flex;gap:10px;align-items:end;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:24px;flex-wrap:wrap}
-.config-bar .field{flex:1;min-width:160px}
-.config-bar label{display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
-.config-bar .actions{display:flex;gap:8px;align-items:end}
-
-/* ─── Buttons ─── */
-.btn-primary{background:var(--accent);color:#fff}
-.btn-primary:hover{background:#4393e6}
-.btn-primary:disabled{opacity:.5;cursor:not-allowed}
-.btn-secondary{background:var(--card);color:var(--text);border:1px solid var(--border)}
-.btn-secondary:hover{background:var(--card-hover);border-color:var(--border-light)}
-.btn-danger{background:var(--red);color:#fff}
-.btn-success{background:var(--green);color:#fff}
-.btn-sm{padding:5px 10px;font-size:12px}
-
-/* ─── Cards ─── */
-.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
-.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.card-header h2{font-size:16px;font-weight:600}
-.card-header h3{font-size:14px;font-weight:600}
-
-/* ─── Grid ─── */
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
-.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-@media(max-width:1000px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}}
-
-/* ─── Score Display ─── */
-.score-ring{width:140px;height:140px;position:relative;margin:0 auto 12px}
-.score-ring svg{transform:rotate(-90deg)}
-.score-ring .track{fill:none;stroke:var(--border);stroke-width:8}
-.score-ring .fill{fill:none;stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset .8s ease}
-.score-ring .label{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.score-ring .grade{font-size:32px;font-weight:800;line-height:1}
-.score-ring .pts{font-size:13px;color:var(--text-muted)}
-
-.verdict-badge{display:inline-block;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600}
-.verdict-green{background:var(--green-bg);color:var(--green)}
-.verdict-blue{background:var(--blue-bg);color:var(--blue)}
-.verdict-yellow{background:var(--yellow-bg);color:var(--yellow)}
-.verdict-orange{background:var(--orange-bg);color:var(--orange)}
-.verdict-red{background:var(--red-bg);color:var(--red)}
-
-/* ─── Category Bars ─── */
-.cat-list{display:flex;flex-direction:column;gap:10px}
-.cat-item{display:flex;align-items:center;gap:12px}
-.cat-label{width:110px;font-size:12px;color:var(--text-muted);flex-shrink:0;text-align:right}
-.cat-bar-wrap{flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden}
-.cat-bar{height:100%;border-radius:4px;transition:width .6s ease}
-.cat-pct{width:40px;font-size:12px;font-weight:600;text-align:right}
-
-/* ─── Check List ─── */
-.check-group{margin-bottom:16px}
-.check-group-header{display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer;user-select:none}
-.check-group-header:hover{color:var(--accent)}
-.check-group-header .arrow{transition:transform .2s;font-size:10px;color:var(--text-dim)}
-.check-group-header .arrow.open{transform:rotate(90deg)}
-.check-group-header .cat-name{font-size:13px;font-weight:600}
-.check-group-header .cat-count{font-size:11px;color:var(--text-muted)}
-.check-items{padding-left:4px}
-.check-row{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:6px;font-size:12px}
-.check-row:hover{background:rgba(255,255,255,.03)}
-.check-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.check-dot.pass{background:var(--green)}
-.check-dot.fail{background:var(--red)}
-.check-name{width:180px;font-weight:500;flex-shrink:0;color:var(--text)}
-.check-detail{flex:1;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.check-fix{font-size:11px;padding:2px 6px;background:var(--yellow-bg);color:var(--yellow);border-radius:4px;flex-shrink:0}
-
-/* ─── Benchmark ─── */
-.task-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:8px;transition:background .15s}
-.task-card:hover{background:var(--card)}
-.task-meta{display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap}
-.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}
-.tag-lang{background:var(--purple-bg);color:var(--purple)}
-.tag-cat{background:var(--blue-bg);color:var(--blue)}
-.task-prompt{font-size:12px;color:var(--text-muted);max-height:60px;overflow:hidden;line-height:1.5}
-.task-answer{margin-top:8px;padding:10px;background:var(--bg);border-radius:var(--radius-sm);font-size:12px;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-word}
-
-/* ─── JSON Output ─── */
-pre.json-out{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-size:12px;max-height:500px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-muted);line-height:1.5}
-
-/* ─── Stat Cards ─── */
-.stat{text-align:center;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm)}
-.stat-val{font-size:28px;font-weight:700;line-height:1.2}
-.stat-label{font-size:11px;color:var(--text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
-
-/* ─── Loading / Spinner ─── */
-.spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.loading-overlay{display:flex;align-items:center;justify-content:center;gap:8px;padding:40px;color:var(--text-muted)}
-
-/* ─── Progress Bar ─── */
-.progress-wrap{margin:12px 0}
-.progress-bar-outer{height:10px;background:var(--border);border-radius:5px;overflow:hidden}
-.progress-bar-inner{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--accent),var(--green));transition:width .3s ease;width:0}
-.progress-stats{display:flex;justify-content:space-between;margin-top:6px;font-size:12px;color:var(--text-muted)}
-.progress-stats .err{color:var(--red)}
-
-/* ─── Tabs ─── */
-.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:-1px}
-.tab-btn{padding:8px 16px;background:none;color:var(--text-muted);font-weight:500;border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px}
-.tab-btn:hover{color:var(--text)}
-.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
-
-/* ─── Section visibility ─── */
-.view{display:none}
-.view.active{display:block}
-
-/* ─── Row helpers ─── */
-.row{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
-.row .field{flex:1;min-width:120px}
-.mt-12{margin-top:12px}
-.mt-16{margin-top:16px}
-.mb-8{margin-bottom:8px}
-.mb-16{margin-bottom:16px}
-.text-center{text-align:center}
-.text-muted{color:var(--text-muted)}
-.text-sm{font-size:12px}
-.hidden{display:none}
-</style>
+<title>Claude API Channel/Intelligence Audit</title>
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="app">
   <!-- Sidebar -->
   <aside class="sidebar">
-    <div class="sidebar-logo">Claude <span>Audit</span></div>
+    <div class="sidebar-logo">LLM <span>Audit</span></div>
     <nav>
       <button class="active" onclick="showView('overview')" data-view="overview">
         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75A.75.75 0 0 1 .75 1h14.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 1.75M3 5a2 2 0 1 1 0 4 2 2 0 0 1 0-4m10 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4M0 14.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1-.75-.75"/></svg>
         概览 Dashboard
       </button>
-      <button onclick="showView('detect')" data-view="detect">
+      <button onclick="showView('channel')" data-view="channel">
         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0M1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0m4.879-2.773L8 6.848l1.621-1.621a.75.75 0 1 1 1.06 1.06L9.061 8l1.621 1.621a.75.75 0 0 1-1.06 1.06L8 9.061l-1.621 1.621a.75.75 0 0 1-1.06-1.06L6.939 8 5.318 6.379a.75.75 0 0 1 1.06-1.06z"/></svg>
-        真实度检测
+        渠道测试
       </button>
-      <button onclick="showView('benchmark')" data-view="benchmark">
+      <button onclick="showView('intelligence')" data-view="intelligence">
         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1M1.5 2.75v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25M3 5.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5m0 2.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9A.5.5 0 0 1 3 8m0 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5"/></svg>
-        性能基准
+        智商测试
       </button>
       <button onclick="showView('raw')" data-view="raw">
         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.72 3.22a.75.75 0 0 1 1.06 1.06L2.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06zm6.56 0a.75.75 0 1 0-1.06 1.06L13.94 8l-3.72 3.72a.75.75 0 1 0 1.06 1.06l4.25-4.25a.75.75 0 0 0 0-1.06z"/></svg>
         原始数据
       </button>
     </nav>
-    <div class="sidebar-footer">Detector Service v2.0<br>Structure + Benchmark</div>
+    <div class="sidebar-footer">LLM Audit v2.0<br>渠道测试 + 智商测试</div>
   </aside>
 
   <!-- Main Content -->
@@ -222,8 +63,8 @@ pre.json-out{background:var(--bg);border:1px solid var(--border);border-radius:v
             <option value="quick">Quick (快速检测)</option>
             <option value="full">Full (完整检测)</option>
           </select>
-          <select id="auditBenchLimit" style="width:auto;padding:8px 12px">
-            <option value="0">全量 Benchmark (124题)</option>
+          <select id="auditIntelligenceLimit" style="width:auto;padding:8px 12px">
+            <option value="0">全量智商测试 (124题)</option>
             <option value="3">3 题采样</option>
             <option value="10">10 题采样</option>
             <option value="30">30 题采样</option>
@@ -234,7 +75,7 @@ pre.json-out{background:var(--bg);border:1px solid var(--border);border-radius:v
 
       <div id="auditPlaceholder" class="card text-center" style="padding:60px">
         <div style="font-size:48px;margin-bottom:12px;opacity:.3">&#9881;</div>
-        <div class="text-muted">配置 Target 后点击「一键审计」开始<br>将同时运行真实度检测 + Benchmark（可配置数量）</div>
+        <div class="text-muted">配置 Target 后点击「一键审计」开始<br>将同时运行渠道测试 + 智商测试（可配置数量）</div>
       </div>
 
       <div id="auditLoading" class="card hidden">
@@ -267,76 +108,76 @@ pre.json-out{background:var(--bg);border:1px solid var(--border);border-radius:v
         <!-- Quick Stats -->
         <div class="grid-4 mb-16" id="quickStats"></div>
 
-        <!-- Benchmark Summary -->
-        <div class="card" id="benchSummaryCard">
+        <!-- 智商测试 Summary -->
+        <div class="card" id="intelligenceSummaryCard">
           <div class="card-header">
-            <h3>Benchmark 快速摘要</h3>
-            <span class="text-sm text-muted" id="benchSummaryMeta"></span>
+            <h3>智商测试快速摘要</h3>
+            <span class="text-sm text-muted" id="intelligenceSummaryMeta"></span>
           </div>
-          <div id="benchSummaryBody"></div>
+          <div id="intelligenceSummaryBody"></div>
         </div>
       </div>
     </div>
 
-    <!-- ═══ Detection ═══ -->
-    <div id="view-detect" class="view">
+    <!-- ═══ Channel Test ═══ -->
+    <div id="view-channel" class="view">
       <div class="main-header">
-        <h1>真实度检测</h1>
+        <h1>渠道测试</h1>
         <div style="display:flex;gap:8px">
-          <select id="detectMode">
+          <select id="channelMode">
             <option value="true">Quick</option>
             <option value="false">Full</option>
           </select>
-          <button class="btn-primary" onclick="runDetect()" id="btnDetect">运行检测</button>
+          <button class="btn-primary" onclick="runChannel()" id="btnChannel">运行渠道测试</button>
         </div>
       </div>
 
-      <div id="detectLoading" class="card hidden">
-        <div class="loading-overlay"><div class="spinner"></div> 正在运行结构检测...</div>
+      <div id="channelLoading" class="card hidden">
+        <div class="loading-overlay"><div class="spinner"></div> 正在运行渠道测试...</div>
       </div>
 
-      <div id="detectResult" class="hidden">
+      <div id="channelResult" class="hidden">
         <div class="grid-2 mb-16">
           <div class="card text-center">
             <div class="score-ring">
               <svg width="140" height="140" viewBox="0 0 140 140">
                 <circle class="track" cx="70" cy="70" r="58"/>
-                <circle class="fill" id="detectScoreArc" cx="70" cy="70" r="58" stroke-dasharray="364.4" stroke-dashoffset="364.4"/>
+                <circle class="fill" id="channelScoreArc" cx="70" cy="70" r="58" stroke-dasharray="364.4" stroke-dashoffset="364.4"/>
               </svg>
               <div class="label">
-                <div class="grade" id="detectGrade">-</div>
-                <div class="pts" id="detectPts">- pts</div>
+                <div class="grade" id="channelGrade">-</div>
+                <div class="pts" id="channelPts">- pts</div>
               </div>
             </div>
-            <div id="detectVerdict" class="verdict-badge verdict-blue">-</div>
+            <div id="channelVerdict" class="verdict-badge verdict-blue">-</div>
           </div>
           <div class="card">
             <h3 class="mb-8">类别得分</h3>
-            <div class="cat-list" id="detectCatBars"></div>
-            <div class="text-sm text-muted mt-12" id="detectMeta"></div>
+            <div class="cat-list" id="channelCatBars"></div>
+            <div class="text-sm text-muted mt-12" id="channelMeta"></div>
           </div>
         </div>
         <div class="card">
           <div class="card-header">
-            <h3>检查项详情</h3>
-            <span class="text-sm text-muted" id="detectCheckCount"></span>
+            <h3>渠道检查项详情</h3>
+            <span class="text-sm text-muted" id="channelCheckCount"></span>
           </div>
-          <div id="detectChecks"></div>
+          <div id="channelChecks"></div>
         </div>
       </div>
 
-      <div id="detectPlaceholder" class="card text-center" style="padding:40px">
-        <div class="text-muted">点击「运行检测」开始真实度检测</div>
+      <div id="channelPlaceholder" class="card text-center" style="padding:40px">
+        <div class="text-muted">点击「运行渠道测试」开始渠道测试</div>
       </div>
     </div>
 
-    <!-- ═══ Benchmark ═══ -->
-    <div id="view-benchmark" class="view">
+    <!-- ═══ Intelligence Test ═══ -->
+    <div id="view-intelligence" class="view">
       <div class="main-header">
-        <h1>Benchmark</h1>
+        <h1>智商测试</h1>
         <div style="display:flex;gap:8px;align-items:center">
-          <select id="benchDatasetSelect" onchange="switchDataset()" style="width:auto;padding:6px 10px;font-size:12px"></select>
-          <button class="btn-secondary btn-sm" onclick="loadBenchList()">刷新</button>
+          <select id="intelligenceDatasetSelect" onchange="switchDataset()" style="width:auto;padding:6px 10px;font-size:12px"></select>
+          <button class="btn-secondary btn-sm" onclick="loadIntelligenceList()">刷新</button>
           <button class="btn-secondary btn-sm" onclick="showUploadDialog()">上传数据集</button>
         </div>
       </div>
@@ -355,10 +196,10 @@ pre.json-out{background:var(--bg);border:1px solid var(--border);border-radius:v
 
         <!-- Fetch from HF -->
         <div id="tabFetch">
-          <div class="text-sm text-muted mb-8">选择已适配的公开 Benchmark，从 HuggingFace 在线拉取。Gated 数据集需先在 HF 上同意协议。</div>
+          <div class="text-sm text-muted mb-8">选择已适配的公开智商测试集，从 HuggingFace 在线拉取。Gated 数据集需先在 HF 上同意协议。</div>
           <div class="row mb-8">
             <div class="field">
-              <label class="text-sm text-muted">选择 Benchmark</label>
+              <label class="text-sm text-muted">选择智商测试集</label>
               <select id="fetchName">
                 <option value="SWE-bench-Verified">SWE-bench Verified (500题, 代码工程)</option>
                 <option value="GPQA-Diamond">GPQA Diamond (448题, 科学推理, Gated)</option>
@@ -393,9 +234,9 @@ pre.json-out{background:var(--bg);border:1px solid var(--border);border-radius:v
       <div class="card mb-16">
         <div class="card-header">
           <h3>数据集概览</h3>
-          <span class="text-sm text-muted" id="benchDatasetLabel">-</span>
+          <span class="text-sm text-muted" id="intelligenceDatasetLabel">-</span>
         </div>
-        <div id="benchInfo" class="text-muted">加载中...</div>
+        <div id="intelligenceInfo" class="text-muted">加载中...</div>
       </div>
 
       <!-- Run Config -->
@@ -433,41 +274,41 @@ pre.json-out{background:var(--bg);border:1px solid var(--border);border-radius:v
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn-primary" onclick="runBenchmarkStream()" id="btnBench">运行 Benchmark</button>
-          <button class="btn-danger btn-sm hidden" onclick="stopBenchmark()" id="btnBenchStop">停止</button>
-          <span class="text-sm text-muted" id="benchPreview"></span>
+          <button class="btn-primary" onclick="runIntelligenceStream()" id="btnIntelligence">运行智商测试</button>
+          <button class="btn-danger btn-sm hidden" onclick="stopIntelligence()" id="btnIntelligenceStop">停止</button>
+          <span class="text-sm text-muted" id="intelligencePreview"></span>
         </div>
       </div>
 
       <!-- Progress -->
-      <div class="card mb-16 hidden" id="benchProgressCard">
+      <div class="card mb-16 hidden" id="intelligenceProgressCard">
         <div class="card-header">
           <h3>运行进度</h3>
-          <span class="text-sm" id="benchElapsed"></span>
+          <span class="text-sm" id="intelligenceElapsed"></span>
         </div>
         <div class="progress-wrap">
-          <div class="progress-bar-outer"><div class="progress-bar-inner" id="benchProgressBar"></div></div>
+          <div class="progress-bar-outer"><div class="progress-bar-inner" id="intelligenceProgressBar"></div></div>
           <div class="progress-stats">
-            <span id="benchProgressText">0/0</span>
-            <span id="benchProgressErrors"></span>
-            <span id="benchProgressPct">0%</span>
+            <span id="intelligenceProgressText">0/0</span>
+            <span id="intelligenceProgressErrors"></span>
+            <span id="intelligenceProgressPct">0%</span>
           </div>
         </div>
       </div>
 
       <!-- Results -->
-      <div class="card mb-16 hidden" id="benchResultCard">
+      <div class="card mb-16 hidden" id="intelligenceResultCard">
         <div class="card-header">
           <h3>运行结果</h3>
           <div style="display:flex;gap:8px;align-items:center">
-            <span class="text-sm text-muted" id="benchResultMeta"></span>
-            <button class="btn-secondary btn-sm" onclick="exportBenchResult()">导出 JSON</button>
+            <span class="text-sm text-muted" id="intelligenceResultMeta"></span>
+            <button class="btn-secondary btn-sm" onclick="exportIntelligenceResult()">导出 JSON</button>
           </div>
         </div>
         <!-- Summary Stats -->
-        <div class="grid-4 mb-16" id="benchResultStats"></div>
+        <div class="grid-4 mb-16" id="intelligenceResultStats"></div>
         <!-- Results List -->
-        <div id="benchResultList" style="max-height:600px;overflow-y:auto"></div>
+        <div id="intelligenceResultList" style="max-height:600px;overflow-y:auto"></div>
       </div>
 
       <!-- Task Browser -->
@@ -489,638 +330,17 @@ pre.json-out{background:var(--bg);border:1px solid var(--border);border-radius:v
         <h1>原始数据</h1>
       </div>
       <div class="tabs">
-        <button class="tab-btn active" onclick="showRawTab('rawDetect',this)">检测结果</button>
-        <button class="tab-btn" onclick="showRawTab('rawBench',this)">Benchmark 结果</button>
+        <button class="tab-btn active" onclick="showRawTab('rawChannel',this)">渠道测试结果</button>
+        <button class="tab-btn" onclick="showRawTab('rawIntelligence',this)">智商测试结果</button>
         <button class="tab-btn" onclick="showRawTab('rawAudit',this)">审计结果</button>
       </div>
-      <pre class="json-out" id="rawDetect">暂无数据</pre>
-      <pre class="json-out hidden" id="rawBench">暂无数据</pre>
+      <pre class="json-out" id="rawChannel">暂无数据</pre>
+      <pre class="json-out hidden" id="rawIntelligence">暂无数据</pre>
       <pre class="json-out hidden" id="rawAudit">暂无数据</pre>
     </div>
   </div>
 </div>
 
-<script>
-/* ─── State ─── */
-let lastDetectResult = null;
-let lastBenchResult = null;
-let lastAuditResult = null;
-
-/* ─── Navigation ─── */
-function showView(name) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.getElementById('view-' + name).classList.add('active');
-  document.querySelectorAll('.sidebar nav button').forEach(b => {
-    b.classList.toggle('active', b.dataset.view === name);
-  });
-}
-function showRawTab(id, btn) {
-  document.querySelectorAll('#view-raw pre').forEach(p => p.classList.add('hidden'));
-  document.getElementById(id).classList.remove('hidden');
-  document.querySelectorAll('#view-raw .tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-}
-
-/* ─── API Helpers ─── */
-function headers() {
-  const h = {'Content-Type': 'application/json'};
-  const t = document.getElementById('adminToken').value.trim();
-  if (t) h['X-Admin-Token'] = t;
-  return h;
-}
-function targetPayload() {
-  return {
-    target_base: document.getElementById('targetBase').value.trim(),
-    target_key: document.getElementById('targetKey').value.trim(),
-    model: document.getElementById('model').value.trim()
-  };
-}
-async function api(url, opt = {}) {
-  const r = await fetch(url, {headers: headers(), ...opt});
-  const text = await r.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = text; }
-  if (!r.ok) throw data;
-  return data;
-}
-
-/* ─── Render Helpers ─── */
-const colorMap = {green:'var(--green)',blue:'var(--blue)',yellow:'var(--yellow)',orange:'var(--orange)',red:'var(--red)'};
-const verdictClassMap = {green:'verdict-green',blue:'verdict-blue',yellow:'verdict-yellow',orange:'verdict-orange',red:'verdict-red'};
-
-function renderScoreRing(arcId, gradeId, ptsId, score) {
-  const circumference = 364.4;
-  const offset = circumference - (score.total_score / 100) * circumference;
-  const arc = document.getElementById(arcId);
-  arc.style.strokeDashoffset = offset;
-  arc.style.stroke = colorMap[score.grade_color] || 'var(--accent)';
-  document.getElementById(gradeId).textContent = score.grade;
-  document.getElementById(gradeId).style.color = colorMap[score.grade_color] || 'var(--text)';
-  document.getElementById(ptsId).textContent = score.total_score + ' pts';
-}
-
-function renderCatBars(containerId, categories) {
-  const el = document.getElementById(containerId);
-  el.innerHTML = categories.map(c => {
-    const barColor = c.percentage >= 80 ? 'var(--green)' : c.percentage >= 50 ? 'var(--yellow)' : 'var(--red)';
-    return `<div class="cat-item">
-      <div class="cat-label">${c.label}</div>
-      <div class="cat-bar-wrap"><div class="cat-bar" style="width:${c.percentage}%;background:${barColor}"></div></div>
-      <div class="cat-pct" style="color:${barColor}">${Math.round(c.percentage)}%</div>
-    </div>`;
-  }).join('');
-}
-
-function renderChecks(containerId, checks) {
-  // Group by category
-  const groups = {};
-  const catNames = {'fingerprint':'LLM 指纹验证','structural':'结构完整性','signature':'签名校验','behavioral':'行为验证','multimodal':'多模态能力'};
-  const catMap = {};
-  // Build category mapping from check names
-  checks.forEach(c => {
-    const cat = guessCategory(c.name);
-    if (!groups[cat]) groups[cat] = [];
-    groups[cat].push(c);
-  });
-  const el = document.getElementById(containerId);
-  el.innerHTML = Object.entries(groups).map(([cat, items]) => {
-    const passed = items.filter(c => c.pass).length;
-    const label = catNames[cat] || cat;
-    return `<div class="check-group">
-      <div class="check-group-header" onclick="this.querySelector('.arrow').classList.toggle('open');this.nextElementSibling.classList.toggle('hidden')">
-        <span class="arrow open">&#9654;</span>
-        <span class="cat-name">${label}</span>
-        <span class="cat-count">${passed}/${items.length}</span>
-      </div>
-      <div class="check-items">${items.map(c => `<div class="check-row">
-        <span class="check-dot ${c.pass?'pass':'fail'}"></span>
-        <span class="check-name">${c.name}</span>
-        <span class="check-detail" title="${esc(c.detail)}">${esc(c.detail)}</span>
-        ${c.fix && !c.pass ? `<span class="check-fix">${c.fix}</span>` : ''}
-      </div>`).join('')}</div>
-    </div>`;
-  }).join('');
-}
-
-const checkCatMap = {
-  id_format:'fingerprint',backend_type:'fingerprint',inference_geo:'fingerprint',
-  stop_details:'fingerprint',stop_details_structure:'fingerprint',
-  small_output_tokens:'fingerprint',small_stop_reason:'fingerprint',
-  container:'fingerprint',bedrock_state:'fingerprint',request_id:'fingerprint',
-  x_new_api_version:'fingerprint',cf_ray_format:'fingerprint',cookie_domain:'fingerprint',
-  hidden_prompt:'fingerprint',
-  usage_structure:'structural',field_order:'structural',model_name:'structural',
-  stop_reason:'structural',tool_stop_reason:'structural',delta_usage_slim:'structural',
-  message_start_usage:'structural',message_start_output_zero:'structural',
-  nonstream_fields:'structural',nonstream_type:'structural',nonstream_role:'structural',
-  tool_use_id:'structural',web_search_result:'structural',
-  structured_json_valid:'structural',structured_schema_match:'structural',
-  structured_stop_reason:'structural',headers:'structural',cf_headers:'structural',
-  server_timing:'structural',sse_done:'structural',sse_event_order:'structural',
-  sse_tailing:'structural',sse_ping_position:'structural',cache_small_probe:'structural',
-  cache_fake:'structural',small_ephemeral_zero:'structural',small_cache_zero:'structural',
-  stop_sequence_null:'structural',
-  signature:'signature',signature_length:'signature',thinking_present:'signature',
-  thinking_order:'signature',thinking_display_omitted:'signature',no_thinking_leak:'signature',
-  tag_replay:'behavioral',identity_response:'behavioral',identity_no_leak:'behavioral',
-  identity_platform:'behavioral',poison_answer:'behavioral',logic_answer:'behavioral',
-  tool_forced_compliance:'behavioral',magic_refusal:'behavioral',
-  image_ocr:'multimodal',pdf_extract:'multimodal'
-};
-function guessCategory(name) { return checkCatMap[name] || 'other'; }
-function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
-
-/* ─── Audit ─── */
-async function runAudit() {
-  const btn = document.getElementById('btnAudit');
-  btn.disabled = true;
-  document.getElementById('auditPlaceholder').classList.add('hidden');
-  document.getElementById('auditResult').classList.add('hidden');
-  document.getElementById('auditLoading').classList.remove('hidden');
-
-  try {
-    const p = {
-      ...targetPayload(),
-      quick: document.getElementById('auditMode').value === 'quick',
-      benchmark_limit: parseInt(document.getElementById('auditBenchLimit').value) || 0
-    };
-    const data = await api('/api/audit', {method: 'POST', body: JSON.stringify(p)});
-    lastAuditResult = data;
-    document.getElementById('rawAudit').textContent = JSON.stringify(data, null, 2);
-
-    // Render detection score
-    const det = data.detection;
-    if (det && det.score) {
-      renderScoreRing('scoreArc', 'scoreGrade', 'scorePts', det.score);
-      const vc = verdictClassMap[det.score.verdict_color] || 'verdict-blue';
-      const vEl = document.getElementById('scoreVerdict');
-      vEl.className = 'verdict-badge ' + vc;
-      vEl.textContent = det.score.verdict_label;
-      document.getElementById('scoreSummary').textContent = det.summary || '';
-      renderCatBars('catBars', det.score.categories || []);
-
-      // Quick stats
-      document.getElementById('quickStats').innerHTML = `
-        <div class="stat"><div class="stat-val" style="color:${colorMap[det.score.grade_color]}">${det.score.total_score}</div><div class="stat-label">检测得分</div></div>
-        <div class="stat"><div class="stat-val">${det.score.checks_passed}/${det.score.checks_total}</div><div class="stat-label">检查通过</div></div>
-        <div class="stat"><div class="stat-val">${det.elapsed_ms || '-'}ms</div><div class="stat-label">检测耗时</div></div>
-        <div class="stat"><div class="stat-val">${data.elapsed_ms || '-'}ms</div><div class="stat-label">总耗时</div></div>
-      `;
-    }
-
-    // Render benchmark summary
-    const bench = data.benchmark;
-    if (bench && bench.results) {
-      document.getElementById('benchSummaryMeta').textContent =
-        `${bench.task_total} tasks | ${bench.model} | ${bench.elapsed_ms}ms`;
-      document.getElementById('benchSummaryBody').innerHTML = bench.results.map(r => {
-        const hasErr = !!r.error;
-        return `<div class="task-card">
-          <div class="task-meta">
-            <span class="tag tag-lang">${r.task.language}</span>
-            <span class="tag tag-cat">${r.task.category}</span>
-            <span class="text-sm text-muted">${r.elapsed_ms}ms</span>
-            ${hasErr ? '<span class="tag" style="background:var(--red-bg);color:var(--red)">Error</span>' : ''}
-          </div>
-          <div class="task-prompt">${esc(r.task.prompt.substring(0, 200))}...</div>
-          ${r.answer ? `<div class="task-answer">${esc(r.answer.substring(0, 500))}</div>` : ''}
-          ${r.error ? `<div class="task-answer" style="color:var(--red)">${esc(r.error)}</div>` : ''}
-        </div>`;
-      }).join('');
-    } else if (bench && bench.error) {
-      document.getElementById('benchSummaryBody').innerHTML = `<div class="text-muted">Benchmark error: ${esc(bench.error)}</div>`;
-    }
-
-    document.getElementById('auditResult').classList.remove('hidden');
-
-    // Also update detection page data
-    if (det && det.checks) {
-      lastDetectResult = det;
-      renderDetectResult(det);
-    }
-  } catch (e) {
-    alert('审计失败: ' + (typeof e === 'string' ? e : JSON.stringify(e)));
-  } finally {
-    document.getElementById('auditLoading').classList.add('hidden');
-    btn.disabled = false;
-  }
-}
-
-/* ─── Detection ─── */
-async function runDetect() {
-  const btn = document.getElementById('btnDetect');
-  btn.disabled = true;
-  document.getElementById('detectPlaceholder').classList.add('hidden');
-  document.getElementById('detectResult').classList.add('hidden');
-  document.getElementById('detectLoading').classList.remove('hidden');
-
-  try {
-    const p = {...targetPayload(), quick: document.getElementById('detectMode').value === 'true'};
-    const data = await api('/api/detect/structure', {method: 'POST', body: JSON.stringify(p)});
-    lastDetectResult = data;
-    document.getElementById('rawDetect').textContent = JSON.stringify(data, null, 2);
-    renderDetectResult(data);
-  } catch (e) {
-    alert('检测失败: ' + (typeof e === 'string' ? e : JSON.stringify(e)));
-    document.getElementById('detectPlaceholder').classList.remove('hidden');
-  } finally {
-    document.getElementById('detectLoading').classList.add('hidden');
-    btn.disabled = false;
-  }
-}
-
-function renderDetectResult(data) {
-  if (data.score) {
-    renderScoreRing('detectScoreArc', 'detectGrade', 'detectPts', data.score);
-    const vc = verdictClassMap[data.score.verdict_color] || 'verdict-blue';
-    const vEl = document.getElementById('detectVerdict');
-    vEl.className = 'verdict-badge ' + vc;
-    vEl.textContent = data.score.verdict_label;
-    renderCatBars('detectCatBars', data.score.categories || []);
-  }
-  document.getElementById('detectMeta').textContent =
-    `Target: ${data.target || '-'} | Model: ${data.model || '-'} | ${data.elapsed_ms || '-'}ms`;
-  if (data.checks) {
-    document.getElementById('detectCheckCount').textContent =
-      `${data.checks.filter(c => c.pass).length}/${data.checks.length} passed`;
-    renderChecks('detectChecks', data.checks);
-  }
-  document.getElementById('detectResult').classList.remove('hidden');
-}
-
-/* ─── Benchmark ─── */
-let benchAbort = null;
-let benchStartTime = null;
-let benchTimer = null;
-let benchStreamResults = [];
-let currentDataset = '';
-let allDatasets = [];
-
-function currentDS() { return currentDataset || 'SWE-Atlas-QnA'; }
-
-async function loadBenchList() {
-  try {
-    const data = await api('/api/benchmark');
-    allDatasets = data.datasets || [];
-    const sel = document.getElementById('benchDatasetSelect');
-    sel.innerHTML = allDatasets.map(d =>
-      `<option value="${esc(d.name)}" ${d.name === currentDataset ? 'selected' : ''}>${esc(d.name)} (${d.total_tasks})</option>`
-    ).join('');
-    if (allDatasets.length > 0 && !currentDataset) {
-      currentDataset = allDatasets[0].name;
-    }
-    loadBenchInfo();
-  } catch (e) {
-    console.error('loadBenchList', e);
-  }
-}
-
-function switchDataset() {
-  currentDataset = document.getElementById('benchDatasetSelect').value;
-  loadBenchInfo();
-}
-
-function showUploadDialog() {
-  document.getElementById('uploadCard').classList.toggle('hidden');
-}
-
-function showAddTab(tabId, btn) {
-  document.getElementById('tabFetch').classList.add('hidden');
-  document.getElementById('tabUpload').classList.add('hidden');
-  document.getElementById(tabId).classList.remove('hidden');
-  btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-}
-
-async function fetchFromHF() {
-  const statusEl = document.getElementById('fetchStatus');
-  const name = document.getElementById('fetchName').value;
-  const limit = parseInt(document.getElementById('fetchLimit').value) || 0;
-  statusEl.textContent = '拉取中，请稍候...';
-
-  try {
-    const h = headers();
-    const resp = await fetch('/api/benchmark-fetch', {
-      method: 'POST', headers: h,
-      body: JSON.stringify({name, limit: limit > 0 ? limit : undefined})
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw data;
-    statusEl.textContent = `成功: ${data.stats.total_tasks} tasks`;
-    currentDataset = data.stats.name;
-    await loadBenchList();
-    document.getElementById('uploadCard').classList.add('hidden');
-  } catch (e) {
-    statusEl.textContent = '拉取失败: ' + (e.error || JSON.stringify(e));
-  }
-}
-
-async function uploadDataset() {
-  const name = document.getElementById('uploadName').value.trim();
-  const fileInput = document.getElementById('uploadFile');
-  const statusEl = document.getElementById('uploadStatus');
-  if (!name) { statusEl.textContent = '请输入数据集名称'; return; }
-  if (!fileInput.files.length) { statusEl.textContent = '请选择文件'; return; }
-
-  statusEl.textContent = '上传中...';
-  const formData = new FormData();
-  formData.append('file', fileInput.files[0]);
-  formData.append('name', name);
-
-  try {
-    const h = {};
-    const t = document.getElementById('adminToken').value.trim();
-    if (t) h['X-Admin-Token'] = t;
-    const resp = await fetch(`/api/benchmark/${encodeURIComponent(name)}/upload`, {
-      method: 'POST', headers: h, body: formData
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw data;
-    statusEl.textContent = `上传成功: ${data.stats.total_tasks} tasks`;
-    currentDataset = name;
-    await loadBenchList();
-    document.getElementById('uploadCard').classList.add('hidden');
-  } catch (e) {
-    statusEl.textContent = '上传失败: ' + (e.error || JSON.stringify(e));
-  }
-}
-
-function toggleRunScope() {
-  const scope = document.getElementById('runScope').value;
-  const filters = document.getElementById('runFilters');
-  const idsWrap = document.getElementById('runIDsWrap');
-  if (scope === 'all') {
-    filters.style.display = 'none';
-  } else {
-    filters.style.display = '';
-    idsWrap.style.display = scope === 'ids' ? '' : 'none';
-  }
-  updateBenchPreview();
-}
-
-function updateBenchPreview() {
-  const scope = document.getElementById('runScope').value;
-  const el = document.getElementById('benchPreview');
-  if (scope === 'all') { el.textContent = '将运行全部 124 题'; return; }
-  const lang = document.getElementById('runLang').value.trim();
-  const cat = document.getElementById('runCategory').value.trim();
-  const limit = parseInt(document.getElementById('runLimit').value) || 0;
-  let desc = [];
-  if (lang) desc.push('lang=' + lang);
-  if (cat) desc.push('cat=' + cat);
-  if (limit > 0) desc.push('limit=' + limit);
-  el.textContent = desc.length ? desc.join(', ') : '全部 124 题';
-}
-
-async function loadBenchInfo() {
-  const ds = currentDS();
-  try {
-    const d = await api(`/api/benchmark/${encodeURIComponent(ds)}`);
-    const s = d.stats;
-    const langHtml = Object.entries(s.languages || {}).sort((a,b) => b[1]-a[1]).map(([k,v]) => `<span class="tag tag-lang" style="margin:2px">${k}: ${v}</span>`).join('') || '<span class="text-muted">-</span>';
-    const catHtml = Object.entries(s.categories || {}).sort((a,b) => b[1]-a[1]).map(([k,v]) => `<span class="tag tag-cat" style="margin:2px">${k}: ${v}</span>`).join('') || '<span class="text-muted">-</span>';
-    document.getElementById('benchInfo').innerHTML = `
-      <div class="grid-3 mb-8">
-        <div class="stat"><div class="stat-val" style="color:var(--green)">${s.total_tasks}</div><div class="stat-label">Total Tasks</div></div>
-        <div class="stat"><div class="stat-val">${Object.keys(s.languages || {}).length}</div><div class="stat-label">Languages</div></div>
-        <div class="stat"><div class="stat-val">${Object.keys(s.categories || {}).length}</div><div class="stat-label">Categories</div></div>
-      </div>
-      <div class="mb-8">Languages: ${langHtml}</div>
-      <div>Categories: ${catHtml}</div>
-    `;
-    document.getElementById('benchDatasetLabel').textContent = `${s.name} ${s.version ? 'v'+s.version : ''} (${s.total_tasks} tasks)`;
-    // Update run scope label
-    const allOpt = document.querySelector('#runScope option[value="all"]');
-    if (allOpt) allOpt.textContent = `全量运行 (${s.total_tasks} 题)`;
-  } catch (e) {
-    document.getElementById('benchInfo').innerHTML = '<span style="color:var(--red)">加载失败: ' + esc(ds) + '</span>';
-  }
-}
-
-async function listTasks() {
-  const el = document.getElementById('taskList');
-  el.innerHTML = '<div class="loading-overlay"><div class="spinner"></div></div>';
-  try {
-    const q = new URLSearchParams();
-    const lang = document.getElementById('taskLang').value.trim();
-    const cat = document.getElementById('taskCategory').value.trim();
-    const limit = document.getElementById('taskLimit').value;
-    if (lang) q.set('language', lang);
-    if (cat) q.set('category', cat);
-    if (limit) q.set('limit', limit);
-    q.set('rubric', '1');
-    const data = await api(`/api/benchmark/${encodeURIComponent(currentDS())}/tasks?` + q.toString());
-    if (!data.tasks || data.tasks.length === 0) {
-      el.innerHTML = '<div class="text-muted">没有匹配的任务</div>';
-      return;
-    }
-    el.innerHTML = `<div class="text-sm text-muted mb-8">${data.total} tasks found</div>` +
-      data.tasks.map(t => `<div class="task-card">
-        <div class="task-meta">
-          <span class="tag tag-lang">${t.language}</span>
-          <span class="tag tag-cat">${t.category}</span>
-          <span class="text-sm text-muted">${t.task_id.substring(0,12)}...</span>
-        </div>
-        <div class="task-prompt">${esc(t.prompt.substring(0, 300))}</div>
-      </div>`).join('');
-  } catch (e) {
-    el.innerHTML = `<div style="color:var(--red)">${esc(JSON.stringify(e))}</div>`;
-  }
-}
-
-function buildRunPayload() {
-  const scope = document.getElementById('runScope').value;
-  const p = {
-    ...targetPayload(),
-    concurrency: parseInt(document.getElementById('runConcurrency').value) || 5,
-    max_tokens: parseInt(document.getElementById('runMaxTokens').value) || 4096,
-  };
-  if (scope === 'all') {
-    // no filters = run all
-    return p;
-  }
-  const lang = document.getElementById('runLang').value.trim();
-  const cat = document.getElementById('runCategory').value.trim();
-  const limit = parseInt(document.getElementById('runLimit').value) || 0;
-  if (lang) p.language = lang;
-  if (cat) p.category = cat;
-  if (limit > 0) p.limit = limit;
-  if (scope === 'ids') {
-    const ids = document.getElementById('runTaskIDs').value.split(',').map(s => s.trim()).filter(Boolean);
-    if (ids.length > 0) p.task_ids = ids;
-  }
-  return p;
-}
-
-async function runBenchmarkStream() {
-  const btn = document.getElementById('btnBench');
-  const stopBtn = document.getElementById('btnBenchStop');
-  btn.disabled = true;
-  stopBtn.classList.remove('hidden');
-
-  const progressCard = document.getElementById('benchProgressCard');
-  const resultCard = document.getElementById('benchResultCard');
-  progressCard.classList.remove('hidden');
-  resultCard.classList.add('hidden');
-
-  benchStreamResults = [];
-  benchStartTime = Date.now();
-  benchTimer = setInterval(updateElapsed, 1000);
-  updateElapsed();
-
-  // Reset progress
-  document.getElementById('benchProgressBar').style.width = '0%';
-  document.getElementById('benchProgressText').textContent = '0/0';
-  document.getElementById('benchProgressErrors').textContent = '';
-  document.getElementById('benchProgressPct').textContent = '0%';
-  document.getElementById('benchResultList').innerHTML = '';
-
-  const payload = buildRunPayload();
-  benchAbort = new AbortController();
-
-  try {
-    const resp = await fetch(`/api/benchmark/${encodeURIComponent(currentDS())}/stream`, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify(payload),
-      signal: benchAbort.signal,
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(text);
-    }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, {stream: true});
-
-      // Parse SSE lines
-      const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep incomplete line
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const ev = JSON.parse(line.substring(6));
-          handleBenchEvent(ev);
-        } catch {}
-      }
-    }
-    // Process remaining buffer
-    if (buffer.startsWith('data: ')) {
-      try { handleBenchEvent(JSON.parse(buffer.substring(6))); } catch {}
-    }
-  } catch (e) {
-    if (e.name !== 'AbortError') {
-      document.getElementById('benchResultList').innerHTML +=
-        `<div style="color:var(--red);padding:12px">Error: ${esc(e.message || JSON.stringify(e))}</div>`;
-    }
-  } finally {
-    clearInterval(benchTimer);
-    btn.disabled = false;
-    stopBtn.classList.add('hidden');
-    benchAbort = null;
-  }
-}
-
-function stopBenchmark() {
-  if (benchAbort) benchAbort.abort();
-}
-
-function updateElapsed() {
-  if (!benchStartTime) return;
-  const sec = ((Date.now() - benchStartTime) / 1000).toFixed(0);
-  const min = Math.floor(sec / 60);
-  const s = sec % 60;
-  document.getElementById('benchElapsed').textContent = min > 0 ? `${min}m ${s}s` : `${s}s`;
-}
-
-function handleBenchEvent(ev) {
-  if (ev.type === 'progress') {
-    const pct = ev.total > 0 ? Math.round(ev.completed / ev.total * 100) : 0;
-    document.getElementById('benchProgressBar').style.width = pct + '%';
-    document.getElementById('benchProgressText').textContent = `${ev.completed}/${ev.total}`;
-    document.getElementById('benchProgressPct').textContent = pct + '%';
-    if (ev.errors > 0) {
-      document.getElementById('benchProgressErrors').innerHTML = `<span class="err">${ev.errors} errors</span>`;
-    }
-
-    if (ev.result) {
-      benchStreamResults.push(ev.result);
-      appendResultCard(ev.result);
-    }
-  } else if (ev.type === 'complete') {
-    if (ev.report) {
-      lastBenchResult = ev.report;
-      document.getElementById('rawBench').textContent = JSON.stringify(ev.report, null, 2);
-      renderBenchSummary(ev.report);
-    }
-    document.getElementById('benchProgressBar').style.width = '100%';
-    document.getElementById('benchProgressPct').textContent = '100%';
-  }
-}
-
-function appendResultCard(r) {
-  const el = document.getElementById('benchResultList');
-  const hasErr = !!r.error;
-  const card = document.createElement('div');
-  card.className = 'task-card';
-  card.innerHTML = `
-    <div class="task-meta">
-      <span class="tag tag-lang">${esc(r.task.language)}</span>
-      <span class="tag tag-cat">${esc(r.task.category)}</span>
-      <span class="text-sm text-muted">${r.task.task_id.substring(0,12)}...</span>
-      <span class="text-sm text-muted">${r.elapsed_ms}ms</span>
-      ${hasErr ? '<span class="tag" style="background:var(--red-bg);color:var(--red)">Error</span>' : '<span class="tag" style="background:var(--green-bg);color:var(--green)">OK</span>'}
-    </div>
-    <div class="task-prompt">${esc((r.task.prompt || '').substring(0, 200))}...</div>
-    ${r.answer ? `<details><summary class="text-sm text-muted" style="cursor:pointer;margin-top:6px">查看回答 (${r.answer.length} chars)</summary><div class="task-answer">${esc(r.answer)}</div></details>` : ''}
-    ${r.error ? `<div class="task-answer" style="color:var(--red)">${esc(r.error)}</div>` : ''}
-  `;
-  el.appendChild(card);
-  // Auto-scroll to bottom
-  el.scrollTop = el.scrollHeight;
-  // Show result card
-  document.getElementById('benchResultCard').classList.remove('hidden');
-}
-
-function renderBenchSummary(report) {
-  document.getElementById('benchResultMeta').textContent =
-    `${report.task_total} tasks | ${report.model} | ${report.elapsed_ms}ms`;
-
-  const avgMs = report.results.length > 0
-    ? Math.round(report.results.reduce((s, r) => s + r.elapsed_ms, 0) / report.results.length)
-    : 0;
-
-  document.getElementById('benchResultStats').innerHTML = `
-    <div class="stat"><div class="stat-val" style="color:var(--green)">${report.task_completed || report.task_total}</div><div class="stat-label">Completed</div></div>
-    <div class="stat"><div class="stat-val" style="color:${report.task_errors > 0 ? 'var(--red)' : 'var(--text)'}">${report.task_errors || 0}</div><div class="stat-label">Errors</div></div>
-    <div class="stat"><div class="stat-val">${(report.elapsed_ms / 1000).toFixed(1)}s</div><div class="stat-label">Total Time</div></div>
-    <div class="stat"><div class="stat-val">${(avgMs / 1000).toFixed(1)}s</div><div class="stat-label">Avg / Task</div></div>
-  `;
-  document.getElementById('benchResultCard').classList.remove('hidden');
-}
-
-function exportBenchResult() {
-  if (!lastBenchResult) return;
-  const blob = new Blob([JSON.stringify(lastBenchResult, null, 2)], {type: 'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `benchmark-${currentDS()}-${new Date().toISOString().slice(0,19)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/* ─── Init ─── */
-loadBenchList();
-toggleRunScope();
-updateBenchPreview();
-</script>
+<script src="/app.js"></script>
 </body>
 </html>

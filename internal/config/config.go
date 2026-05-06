@@ -23,21 +23,21 @@ func expandEnvWithDefaults(s string) string {
 	return os.ExpandEnv(s)
 }
 
-// Config is the top-level detector/benchmark service configuration.
+// Config is the top-level channel/intelligence test service configuration.
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Upstream UpstreamConfig `yaml:"upstream"`
 	Models   ModelConfig    `yaml:"models"`
 	Log      LogConfig      `yaml:"log"`
 	Admin    AdminConfig    `yaml:"admin"`
-	Probe    ProbeConfig    `yaml:"probe"`
+	Channel  ChannelConfig  `yaml:"channel"`
 }
 
 type ServerConfig struct {
 	Listen string `yaml:"listen"`
 }
 
-// UpstreamConfig optionally provides a default target for detection and benchmark runs.
+// UpstreamConfig optionally provides a default target for channel and intelligence runs.
 type UpstreamConfig struct {
 	BaseURL string `yaml:"base_url"`
 	APIKey  string `yaml:"api_key"`
@@ -52,13 +52,13 @@ type LogConfig struct {
 	Level string `yaml:"level"`
 }
 
-// AdminConfig controls optional protection for detector/benchmark APIs.
+// AdminConfig controls optional protection for channel/intelligence APIs.
 type AdminConfig struct {
 	Token string `yaml:"token"`
 }
 
-// ProbeConfig controls the structure/fingerprint probe system.
-type ProbeConfig struct {
+// ChannelConfig controls the channel authenticity test system.
+type ChannelConfig struct {
 	SigSecret string `yaml:"sig_secret"`
 }
 
@@ -93,7 +93,7 @@ func (c *Config) validate() error {
 	c.Upstream.APIKey = strings.TrimSpace(c.Upstream.APIKey)
 	c.Models.DefaultModel = strings.TrimSpace(c.Models.DefaultModel)
 	c.Admin.Token = strings.TrimSpace(c.Admin.Token)
-	c.Probe.SigSecret = strings.TrimSpace(c.Probe.SigSecret)
+	c.Channel.SigSecret = strings.TrimSpace(c.Channel.SigSecret)
 	if (c.Upstream.BaseURL == "") != (c.Upstream.APIKey == "") {
 		return fmt.Errorf("upstream.base_url and upstream.api_key must be configured together, or both omitted")
 	}

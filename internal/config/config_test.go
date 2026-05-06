@@ -20,7 +20,7 @@ log:
   level: "debug"
 admin:
   token: "adm"
-probe:
+channel:
   sig_secret: "sig"
 `
 	cfg := loadTempConfig(t, content)
@@ -37,8 +37,8 @@ probe:
 	if cfg.Models.DefaultModel != "claude-sonnet-4-6" {
 		t.Errorf("default_model = %s, want claude-sonnet-4-6", cfg.Models.DefaultModel)
 	}
-	if cfg.Admin.Token != "adm" || cfg.Probe.SigSecret != "sig" {
-		t.Errorf("admin/probe config not loaded: %+v", cfg)
+	if cfg.Admin.Token != "adm" || cfg.Channel.SigSecret != "sig" {
+		t.Errorf("admin/channel config not loaded: %+v", cfg)
 	}
 }
 

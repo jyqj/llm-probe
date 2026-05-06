@@ -44,3 +44,4 @@ detector_captures/
 
 # Large benchmark datasets (may trigger GitHub secret scanning false positives)
 internal/benchmark/sweatlas/data/*.csv
+internal/intelligence/datasets/sweatlas/data/*.csv

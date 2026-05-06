@@ -1,0 +1,308 @@
+package channeltest
+
+import (
+	"fmt"
+	"net/http"
+	"regexp"
+	"strings"
+
+	"detector-service/internal/fingerprint"
+)
+
+var (
+	msgIDRe     = regexp.MustCompile(`^msg_01[0-9A-Za-z]{22}$`)
+	toolIDRe    = regexp.MustCompile(`^toolu_01[0-9A-Za-z]{22}$`)
+	srvToolIDRe = regexp.MustCompile(`^srvtoolu_01[0-9A-Za-z]{22}$`)
+	reqIDRe     = regexp.MustCompile(`^req_01[0-9A-Za-z]+$`)
+	uuidRe      = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+)
+
+// checkIDFormat verifies the message ID matches msg_01{22} format.
+func checkIDFormat(body map[string]any) CheckResult {
+	id, _ := body["id"].(string)
+	if id == "" {
+		return CheckResult{Name: "id_format", Pass: false, Detail: "no id field", Fix: "id_rewrite"}
+	}
+	if msgIDRe.MatchString(id) {
+		return CheckResult{Name: "id_format", Pass: true, Detail: "msg_01 format OK"}
+	}
+	return CheckResult{Name: "id_format", Pass: false, Detail: "got " + truncate(id, 30), Fix: "id_rewrite"}
+}
+
+// checkToolUseID verifies tool_use content blocks have toolu_01{22} IDs.
+func checkToolUseID(body map[string]any) CheckResult {
+	content, _ := body["content"].([]any)
+	for _, cb := range content {
+		m, ok := cb.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _ := m["type"].(string)
+		if t == "tool_use" {
+			id, _ := m["id"].(string)
+			if id == "" {
+				return CheckResult{Name: "tool_use_id", Pass: false, Detail: "tool_use has no id", Fix: "id_rewrite"}
+			}
+			if !toolIDRe.MatchString(id) {
+				return CheckResult{Name: "tool_use_id", Pass: false, Detail: "tool_use id: " + truncate(id, 30), Fix: "id_rewrite"}
+			}
+			return CheckResult{Name: "tool_use_id", Pass: true, Detail: "toolu_01 format OK"}
+		}
+		if t == "server_tool_use" {
+			id, _ := m["id"].(string)
+			if id == "" {
+				return CheckResult{Name: "tool_use_id", Pass: false, Detail: "server_tool_use has no id", Fix: "id_rewrite"}
+			}
+			if !srvToolIDRe.MatchString(id) {
+				return CheckResult{Name: "tool_use_id", Pass: false, Detail: "server_tool_use id: " + truncate(id, 30), Fix: "id_rewrite"}
+			}
+			return CheckResult{Name: "tool_use_id", Pass: true, Detail: "srvtoolu_01 format OK"}
+		}
+	}
+	return CheckResult{Name: "tool_use_id", Pass: true, Detail: "no tool_use blocks (skip)"}
+}
+
+// checkRequestID verifies Request-Id header matches req_01 format.
+func checkRequestID(headers http.Header) CheckResult {
+	rid := headers.Get("Request-Id")
+	if rid != "" {
+		if reqIDRe.MatchString(rid) {
+			return CheckResult{Name: "request_id", Pass: true, Detail: "Request-Id format OK: " + truncate(rid, 20)}
+		}
+		return CheckResult{Name: "request_id", Pass: false, Detail: "Request-Id not req_01 format: " + truncate(rid, 20), Fix: "headers_fake"}
+	}
+
+	// Azure/managed clean channels expose UUID X-Request-Id instead.
+	xrid := headers.Get("X-Request-Id")
+	if xrid != "" && uuidRe.MatchString(xrid) {
+		return CheckResult{Name: "request_id", Pass: true, Detail: "X-Request-Id UUID format OK: " + truncate(xrid, 20)}
+	}
+	return CheckResult{Name: "request_id", Pass: false, Detail: "no Request-Id/X-Request-Id header", Fix: "headers_fake"}
+}
+
+// checkXNewApiVersion checks for the X-New-Api-Version header (indicates non-official).
+func checkXNewApiVersion(headers http.Header) CheckResult {
+	if headers.Get("X-New-Api-Version") != "" {
+		return CheckResult{Name: "x_new_api_version", Pass: false,
+			Detail: "X-New-Api-Version header present (non-official)", Fix: "headers_fake"}
+	}
+	return CheckResult{Name: "x_new_api_version", Pass: true, Detail: "no X-New-Api-Version header"}
+}
+
+// checkContainer checks if response body contains a "container" field.
+func checkContainer(body map[string]any) CheckResult {
+	if _, ok := body["container"]; ok {
+		return CheckResult{Name: "container", Pass: false, Detail: "container field present", Fix: "strip_container"}
+	}
+	return CheckResult{Name: "container", Pass: true, Detail: "no container field"}
+}
+
+// checkBedrockState checks if usage contains bedrock_state.
+func checkBedrockState(body map[string]any) CheckResult {
+	usage, _ := body["usage"].(map[string]any)
+	if usage == nil {
+		return CheckResult{Name: "bedrock_state", Pass: true, Detail: "no usage object"}
+	}
+	if _, ok := usage["bedrock_state"]; ok {
+		return CheckResult{Name: "bedrock_state", Pass: false, Detail: "bedrock_state present in usage", Fix: "strip_bedrock"}
+	}
+	return CheckResult{Name: "bedrock_state", Pass: true, Detail: "no bedrock_state"}
+}
+
+// checkInferenceGeo checks if inference_geo has a valid value.
+func checkInferenceGeo(body map[string]any, model string) CheckResult {
+	usage, _ := body["usage"].(map[string]any)
+	if usage == nil {
+		return CheckResult{Name: "inference_geo", Pass: false, Detail: "no usage object", Fix: "force_geo"}
+	}
+	geo, _ := usage["inference_geo"].(string)
+	if geo == "" {
+		return CheckResult{Name: "inference_geo", Pass: false, Detail: "missing inference_geo", Fix: "force_geo"}
+	}
+	// Clean reference channels use both global (Console) and not_available
+	// (Azure/managed). Treat both as valid; this check should catch missing or
+	// obviously non-standard values, not distinguish clean providers.
+	if geo == "global" || geo == "not_available" {
+		return CheckResult{Name: "inference_geo", Pass: true, Detail: "inference_geo=" + geo}
+	}
+	return CheckResult{Name: "inference_geo", Pass: false,
+		Detail: "inference_geo=" + geo + " expected global/not_available", Fix: "force_geo"}
+}
+
+// checkStopDetails checks if stop_details field exists in the response.
+func checkStopDetails(body map[string]any) CheckResult {
+	if _, ok := body["stop_details"]; ok {
+		return CheckResult{Name: "stop_details", Pass: true, Detail: "stop_details present"}
+	}
+	return CheckResult{Name: "stop_details", Pass: false, Detail: "stop_details missing", Fix: "body_rewrite"}
+}
+
+// checkStopDetailsStructure verifies stop_details.type matches stop_reason.
+// Official API: stop_details: {type: "end_turn"|"stop_sequence"|"max_tokens"}
+func checkStopDetailsStructure(body map[string]any) CheckResult {
+	sd, ok := body["stop_details"].(map[string]any)
+	if !ok {
+		// stop_details might be null — that's a separate check
+		return CheckResult{Name: "stop_details_structure", Pass: true, Detail: "stop_details null (skip)"}
+	}
+	sdType, _ := sd["type"].(string)
+	if sdType == "" {
+		return CheckResult{Name: "stop_details_structure", Pass: false,
+			Detail: "stop_details has no type field", Fix: "body_rewrite"}
+	}
+	sr, _ := body["stop_reason"].(string)
+	if sr != "" && sdType != sr {
+		return CheckResult{Name: "stop_details_structure", Pass: false,
+			Detail: fmt.Sprintf("stop_details.type=%s != stop_reason=%s", sdType, sr), Fix: "body_rewrite"}
+	}
+	return CheckResult{Name: "stop_details_structure", Pass: true,
+		Detail: "stop_details.type=" + sdType + " matches stop_reason"}
+}
+
+// checkBackendType detects the backend type from the message ID prefix.
+// msg_bdrk_ = Bedrock, gen- = OpenRouter, chatcmpl- = OneAPI/sub2api
+func checkBackendType(body map[string]any) CheckResult {
+	id, _ := body["id"].(string)
+	if id == "" {
+		return CheckResult{Name: "backend_type", Pass: false, Detail: "no id field"}
+	}
+	switch {
+	case strings.HasPrefix(id, "msg_bdrk_"):
+		return CheckResult{Name: "backend_type", Pass: false, Detail: "Bedrock backend (msg_bdrk_)", Fix: "id_rewrite"}
+	case strings.HasPrefix(id, "gen-"):
+		return CheckResult{Name: "backend_type", Pass: false, Detail: "OpenRouter backend (gen-)", Fix: "id_rewrite"}
+	case strings.HasPrefix(id, "chatcmpl-"):
+		return CheckResult{Name: "backend_type", Pass: false, Detail: "OneAPI/sub2api backend (chatcmpl-)", Fix: "id_rewrite"}
+	case strings.HasPrefix(id, "msg_01"):
+		return CheckResult{Name: "backend_type", Pass: true, Detail: "official format (msg_01)"}
+	case strings.HasPrefix(id, "msg_") && len(id) >= 26:
+		return CheckResult{Name: "backend_type", Pass: true, Detail: "Anthropic format (msg_)"}
+	default:
+		return CheckResult{Name: "backend_type", Pass: false, Detail: "unknown id prefix: " + truncate(id, 20), Fix: "id_rewrite"}
+	}
+}
+
+var cfRayRe = regexp.MustCompile(`^[0-9a-f]{16}-[A-Z]{3}$`)
+
+func checkCfRayFormat(headers http.Header) CheckResult {
+	if hasXRatelimitHeaders(headers) {
+		return CheckResult{Name: "cf_ray_format", Pass: true, Detail: "managed-channel headers (Cf-Ray not expected)"}
+	}
+	ray := headers.Get("Cf-Ray")
+	if ray == "" {
+		return CheckResult{Name: "cf_ray_format", Pass: false, Detail: "no Cf-Ray header", Fix: "headers_fake"}
+	}
+	if cfRayRe.MatchString(ray) {
+		return CheckResult{Name: "cf_ray_format", Pass: true, Detail: "Cf-Ray format OK: " + ray}
+	}
+	return CheckResult{Name: "cf_ray_format", Pass: false, Detail: "Cf-Ray format invalid: " + truncate(ray, 30), Fix: "headers_fake"}
+}
+
+// checkHiddenPrompt detects injected system prompts by analyzing input_tokens.
+// A bare "hi" with NO system prompt should use ~8-10 input_tokens.
+// If input_tokens > 20, the upstream likely injects a hidden system prompt.
+func checkHiddenPrompt(body map[string]any) CheckResult {
+	usage, _ := body["usage"].(map[string]any)
+	if usage == nil {
+		return CheckResult{Name: "hidden_prompt", Pass: false, Detail: "no usage object"}
+	}
+	inputTok := fingerprint.IntVal(usage, "input_tokens")
+	// "hi" with no system prompt = ~8 tokens (message overhead + content)
+	// Threshold 20 allows some variance but catches any injected system prompt
+	if inputTok <= 20 {
+		return CheckResult{Name: "hidden_prompt", Pass: true,
+			Detail: fmt.Sprintf("input_tokens=%d (clean, no hidden prompt)", inputTok)}
+	}
+	return CheckResult{Name: "hidden_prompt", Pass: false,
+		Detail: fmt.Sprintf("input_tokens=%d (expected ≤20 for bare 'hi'), likely hidden system prompt injected", inputTok)}
+}
+
+// checkTokenBudget detects hidden prompt injection in requests that include our
+// known system prompt. mini_probe sends fullSystem() + "hi" + max_tokens=1.
+// Official channels report input_tokens=36 (opus-4-6) or 58 (opus-4-7).
+// If input_tokens greatly exceeds the expected budget, the upstream has injected
+// additional hidden content on top of our system prompt.
+func checkTokenBudget(body map[string]any, model string) CheckResult {
+	usage, _ := body["usage"].(map[string]any)
+	if usage == nil {
+		return CheckResult{Name: "token_budget", Pass: false, Detail: "no usage object"}
+	}
+	inputTok := fingerprint.IntVal(usage, "input_tokens")
+	// Reference budgets from clean channels:
+	//   opus-4-6 / sonnet-4-6 : 36
+	//   opus-4-7              : 58
+	// Allow generous margin (+20) to absorb minor tokenizer/version drift.
+	maxBudget := 80
+	if inputTok <= maxBudget {
+		return CheckResult{Name: "token_budget", Pass: true,
+			Detail: fmt.Sprintf("input_tokens=%d within budget (≤%d)", inputTok, maxBudget)}
+	}
+	return CheckResult{Name: "token_budget", Pass: false,
+		Detail: fmt.Sprintf("input_tokens=%d exceeds budget %d — likely extra hidden prompt injected on top of system prompt", inputTok, maxBudget)}
+}
+
+// checkServiceTier checks if usage contains a service_tier field.
+// Official API always includes service_tier; proxies often strip it.
+func checkServiceTier(body map[string]any) CheckResult {
+	usage, _ := body["usage"].(map[string]any)
+	if usage == nil {
+		return CheckResult{Name: "service_tier", Pass: false, Detail: "no usage object"}
+	}
+	if _, ok := usage["service_tier"]; !ok {
+		return CheckResult{Name: "service_tier", Pass: false, Detail: "service_tier missing from usage"}
+	}
+	return CheckResult{Name: "service_tier", Pass: true, Detail: "service_tier present"}
+}
+
+// checkServerHeader verifies the Server response header value.
+// Console: "cloudflare"; Azure/managed: absent (acceptable); Proxy: "nginx" etc.
+func checkServerHeader(headers http.Header) CheckResult {
+	if hasXRatelimitHeaders(headers) {
+		// Azure/managed channels often have no Server header — that's fine
+		return CheckResult{Name: "server_header", Pass: true, Detail: "managed-channel (Server optional)"}
+	}
+	server := headers.Get("Server")
+	if server == "" {
+		return CheckResult{Name: "server_header", Pass: false, Detail: "no Server header", Fix: "headers_fake"}
+	}
+	if strings.Contains(strings.ToLower(server), "cloudflare") {
+		return CheckResult{Name: "server_header", Pass: true, Detail: "Server=cloudflare OK"}
+	}
+	return CheckResult{Name: "server_header", Pass: false,
+		Detail: "Server=" + truncate(server, 30) + " (expected cloudflare)", Fix: "headers_fake"}
+}
+
+// checkSignatureTypeLeak detects the non-standard "signature_type" field in thinking blocks.
+// Official API never includes this field; some proxies add it.
+func checkSignatureTypeLeak(body map[string]any) CheckResult {
+	content, _ := body["content"].([]any)
+	for _, cb := range content {
+		m, ok := cb.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _ := m["type"].(string)
+		if t == "thinking" {
+			if _, has := m["signature_type"]; has {
+				return CheckResult{Name: "signature_type_leak", Pass: false,
+					Detail: "thinking block has non-standard signature_type field"}
+			}
+		}
+	}
+	return CheckResult{Name: "signature_type_leak", Pass: true, Detail: "no signature_type leak"}
+}
+
+// checkCookieDomain validates Set-Cookie contains correct domain for Anthropic API.
+func checkCookieDomain(headers http.Header) CheckResult {
+	if hasXRatelimitHeaders(headers) {
+		return CheckResult{Name: "cookie_domain", Pass: true, Detail: "managed-channel headers (Set-Cookie not expected)"}
+	}
+	cookie := headers.Get("Set-Cookie")
+	if cookie == "" {
+		return CheckResult{Name: "cookie_domain", Pass: false, Detail: "no Set-Cookie header", Fix: "headers_fake"}
+	}
+	if strings.Contains(cookie, "anthropic.com") {
+		return CheckResult{Name: "cookie_domain", Pass: true, Detail: "cookie domain OK"}
+	}
+	return CheckResult{Name: "cookie_domain", Pass: false, Detail: "cookie missing anthropic.com domain", Fix: "headers_fake"}
+}

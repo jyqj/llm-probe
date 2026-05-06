@@ -11,12 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"detector-service/internal/benchmark"
-	"detector-service/internal/benchmark/sweatlas"
+	"detector-service/internal/api"
+	"detector-service/internal/channeltest"
 	"detector-service/internal/config"
-	"detector-service/internal/detectapi"
 	"detector-service/internal/fingerprint"
-	"detector-service/internal/probe"
+	"detector-service/internal/intelligence"
+	"detector-service/internal/intelligence/datasets/sweatlas"
 	"detector-service/web"
 )
 
@@ -41,33 +41,33 @@ func main() {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
-	if cfg.Probe.SigSecret != "" {
-		fingerprint.SetSigSecret(cfg.Probe.SigSecret)
+	if cfg.Channel.SigSecret != "" {
+		fingerprint.SetSigSecret(cfg.Channel.SigSecret)
 	}
 
-	// ── Benchmark Registry ──
-	registry := benchmark.NewRegistry()
+	// ── Intelligence Dataset Registry ──
+	registry := intelligence.NewRegistry()
 
 	// Register built-in SWE-Atlas-QnA (embedded)
 	sweAtlas, err := sweatlas.Load()
 	if err != nil {
-		logger.Error("failed to load embedded benchmark", "error", err)
+		logger.Error("failed to load embedded intelligence dataset", "error", err)
 		os.Exit(1)
 	}
 	registry.Register(sweAtlas)
 
-	prober := probe.NewProber()
-	probeStore := probe.NewStore(prober, logger, false, nil)
-	runner := benchmark.NewRunner(nil)
+	channelRunner := channeltest.NewRunner()
+	channelStore := channeltest.NewStore(channelRunner, logger, false, nil)
+	runner := intelligence.NewRunner(nil)
 
 	mux := http.NewServeMux()
-	api := detectapi.New(cfg, logger, probeStore, registry, runner)
+	api := api.New(cfg, logger, channelStore, registry, runner)
 	api.RegisterRoutes(mux)
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","mode":"detector"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","mode":"channel_intelligence"}`))
 	})
 
 	staticFS, err := fs.Sub(web.StaticFS, "static")
@@ -79,11 +79,11 @@ func main() {
 	mux.Handle("/", fileServer)
 
 	names := registry.List()
-	logger.Info("starting detector service",
+	logger.Info("starting channel/intelligence service",
 		"listen", cfg.Server.Listen,
 		"default_target", cfg.Upstream.BaseURL,
-		"benchmarks", names,
-		"benchmark_count", len(names),
+		"intelligence_datasets", names,
+		"intelligence_dataset_count", len(names),
 		"webui", "http://localhost"+cfg.Server.Listen,
 	)
 

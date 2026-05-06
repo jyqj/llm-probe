@@ -1,4 +1,4 @@
-# Detector/Benchmark Service - Example Configuration
+# Channel/Intelligence Test Service - Example Configuration
 # Copy this file to config.yaml and set optional defaults.
 
 server:
@@ -6,20 +6,20 @@ server:
 
 # Optional default target. API requests may also provide target_base/target_key/model.
 upstream:
-  base_url: "${DETECT_TARGET_BASE:-}"
-  api_key: "${DETECT_TARGET_KEY:-}"
+  base_url: "${CHANNEL_TARGET_BASE:-}"
+  api_key: "${CHANNEL_TARGET_KEY:-}"
   timeout: 300
 
 models:
-  default_model: "${DETECT_MODEL:-claude-opus-4-6}"
+  default_model: "${CHANNEL_MODEL:-claude-opus-4-6}"
 
 log:
   level: "info"
 
-# Optional admin token for /api/detect/* and /api/benchmark/*.
+# Optional admin token for /api/channel/*, /api/intelligence/* and /api/audit/*.
 admin:
-  token: "${DETECT_ADMIN_TOKEN:-}"
+  token: "${CHANNEL_ADMIN_TOKEN:-}"
 
-# Structure/fingerprint probe settings.
-probe:
-  sig_secret: "${DETECT_SIG_SECRET:-}"
+# Channel authenticity test settings.
+channel:
+  sig_secret: "${CHANNEL_SIG_SECRET:-}"
