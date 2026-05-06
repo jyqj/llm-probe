@@ -10,7 +10,7 @@ import (
 
 const (
 	DatasetName    = "SWE-Atlas-QnA"
-	DatasetURL     = "https://huggingface.co/datasets/ScaleAI/SWE-Atlas-QnA"
+	DatasetURL     = "https://github.com/scaleapi/SWE-Atlas"
 	DatasetVersion = "hf-main-2026-05-06"
 	csvPath        = "data/cae_qna_124_public.csv"
 )

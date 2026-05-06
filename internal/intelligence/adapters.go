@@ -2,34 +2,26 @@ package intelligence
 
 import "sort"
 
-// HFSource describes the default HuggingFace source for a known intelligence.
+// HFSource describes the default HuggingFace source for a known intelligence dataset.
 type HFSource struct {
 	Dataset string
 	Config  string
 	Split   string
 }
 
-var knownAdapters = map[string]ColumnAdapter{
-	"SWE-bench-Verified": SWEBenchAdapter{},
-	"GPQA-Diamond":       GPQAAdapter{},
-	"HLE":                HLEAdapter{},
-	"LiveCodeBench":      LiveCodeBenchAdapter{},
-}
+// Currently only SWE-Atlas-QnA is supported as a built-in dataset (embedded CSV).
+// Additional adapters can be added here when new benchmarks are needed.
+var knownAdapters = map[string]ColumnAdapter{}
 
-var knownHFSources = map[string]HFSource{
-	"SWE-bench-Verified": {Dataset: "princeton-nlp/SWE-bench_Verified", Config: "default", Split: "test"},
-	"GPQA-Diamond":       {Dataset: "Idavidrein/gpqa", Config: "default", Split: "train"},
-	"HLE":                {Dataset: "cais/hle", Config: "default", Split: "test"},
-	"LiveCodeBench":      {Dataset: "livecodebench/code_generation_lite", Config: "release_v5", Split: "test"},
-}
+var knownHFSources = map[string]HFSource{}
 
-// KnownAdapter returns the column adapter for a built-in public intelligence.
+// KnownAdapter returns the column adapter for a built-in public intelligence dataset.
 func KnownAdapter(name string) (ColumnAdapter, bool) {
 	adapter, ok := knownAdapters[name]
 	return adapter, ok
 }
 
-// KnownHFSource returns the default HuggingFace dataset metadata for a intelligence.
+// KnownHFSource returns the default HuggingFace dataset metadata.
 func KnownHFSource(name string) (HFSource, bool) {
 	source, ok := knownHFSources[name]
 	return source, ok

@@ -235,15 +235,12 @@
         <button class="upload-tab" onclick="showAddTab('tabUpload',this)">上传自定义文件</button>
       </div>
       <div id="tabFetch">
-        <p class="muted" style="font-size:12px;margin-bottom:12px">选择已适配的公开智商测试集,从 HuggingFace 在线拉取。</p>
+        <p class="muted" style="font-size:12px;margin-bottom:12px">暂时仅支持内置的 SWE-Atlas-QnA 数据集。如需添加自定义数据集,请使用「上传自定义文件」。</p>
         <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
           <div style="flex:1;min-width:200px">
             <div class="muted" style="font-size:11px;margin-bottom:4px">选择智商测试集</div>
             <select id="fetchName" class="input" style="padding:8px 12px">
-              <option value="SWE-bench-Verified">SWE-bench Verified (500题)</option>
-              <option value="GPQA-Diamond">GPQA Diamond (448题, Gated)</option>
-              <option value="HLE">HLE (2500题, Gated)</option>
-              <option value="LiveCodeBench">LiveCodeBench (880题)</option>
+              <option value="" disabled selected>暂无可拉取的数据集</option>
             </select>
           </div>
           <div style="width:80px">
