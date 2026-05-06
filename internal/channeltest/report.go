@@ -16,6 +16,7 @@ type CheckResult struct {
 
 // Report is the full result of a channel test suite run.
 type Report struct {
+	ID          string                     `json:"id"`
 	Target      string                     `json:"target"`
 	Model       string                     `json:"model"`
 	Timestamp   time.Time                  `json:"timestamp"`

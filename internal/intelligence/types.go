@@ -95,17 +95,19 @@ type RunRequest struct {
 	Language    string   `json:"language,omitempty"`
 	Category    string   `json:"category,omitempty"`
 	Limit       int      `json:"limit,omitempty"`
-	MaxTokens   int      `json:"max_tokens,omitempty"`
+	Thinking    bool     `json:"thinking,omitempty"`
 	Concurrency int      `json:"concurrency,omitempty"`
 }
 
 // RunReport is the complete result of a intelligence-test run.
 type RunReport struct {
+	ID             string          `json:"id"`
 	DatasetName    string          `json:"dataset_name"`
 	DatasetVersion string          `json:"dataset_version"`
 	Source         string          `json:"source,omitempty"`
 	Target         string          `json:"target"`
 	Model          string          `json:"model"`
+	Thinking       bool            `json:"thinking,omitempty"`
 	StartedAt      time.Time       `json:"started_at"`
 	ElapsedMs      int64           `json:"elapsed_ms"`
 	TaskTotal      int             `json:"task_total"`

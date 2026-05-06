@@ -36,6 +36,45 @@ func (a *API) handleChannelRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, report)
 }
 
+func (a *API) handleChannelHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		// DELETE /api/channel/history?id=xxx — delete all history
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "use /api/channel/history/{id} to delete"})
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"history": a.channelStore.ListHistory()})
+}
+
+func (a *API) handleChannelHistoryDetail(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/channel/history/")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "id is required"})
+		return
+	}
+	if r.Method == http.MethodDelete {
+		if a.channelStore.DeleteHistory(id) {
+			writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+		} else {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		}
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	report := a.channelStore.GetHistory(id)
+	if report == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
 func (a *API) handleChannelReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

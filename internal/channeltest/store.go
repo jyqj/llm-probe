@@ -1,6 +1,7 @@
 package channeltest
 
 import (
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ type StoreEntry struct {
 type Store struct {
 	mu       sync.RWMutex
 	entries  map[string]*StoreEntry // key = upstream base URL
+	history  []*Report
 	runner   *Runner
 	logger   *slog.Logger
 	autoRun  bool
@@ -76,11 +78,53 @@ func (s *Store) SetResult(upstreamBase string, report *Report) {
 		Report:   report,
 		TestedAt: time.Now(),
 	}
+	if report != nil {
+		if report.ID == "" {
+			report.ID = fmt.Sprintf("%d", time.Now().UnixNano())
+		}
+		s.history = append(s.history, report)
+	}
 	s.mu.Unlock()
 
 	if report != nil && s.onReport != nil {
 		s.onReport(upstreamBase, report)
 	}
+}
+
+// ListHistory returns all history records in reverse chronological order.
+func (s *Store) ListHistory() []*Report {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Report, len(s.history))
+	for i, r := range s.history {
+		out[len(s.history)-1-i] = r
+	}
+	return out
+}
+
+// GetHistory returns a single history record by ID.
+func (s *Store) GetHistory(id string) *Report {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, r := range s.history {
+		if r.ID == id {
+			return r
+		}
+	}
+	return nil
+}
+
+// DeleteHistory removes a history record by ID.
+func (s *Store) DeleteHistory(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, r := range s.history {
+		if r.ID == id {
+			s.history = append(s.history[:i], s.history[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 // ListEntries returns all cached entries (for admin report).

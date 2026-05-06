@@ -50,16 +50,17 @@ function switchApp(name) {
 }
 
 function showChannelSub(sub) {
-  ['Overview', 'Checks', 'Raw'].forEach(s => {
+  ['Overview', 'Checks', 'Raw', 'History'].forEach(s => {
     const el = document.getElementById('channelSub' + s);
     if (el) el.classList.toggle('hidden', s.toLowerCase() !== sub);
   });
   // Update sidebar active state
   document.querySelectorAll('[data-app-pane="channel"] .side-link').forEach((link, i) => {
-    const subs = ['overview', 'checks', 'raw'];
+    const subs = ['overview', 'checks', 'raw', 'history'];
     link.classList.toggle('channel-active', subs[i] === sub);
     link.classList.toggle('active', false);
   });
+  if (sub === 'history') loadChannelHistory();
 }
 
 /* ─── API Helpers ─── */
@@ -506,7 +507,7 @@ function buildRunPayload() {
   const p = {
     ...targetPayload(),
     concurrency: parseInt(document.getElementById('runConcurrency').value) || 5,
-    max_tokens: parseInt(document.getElementById('runMaxTokens').value) || 4096,
+    thinking: document.getElementById('runThinking').value === 'on',
   };
   // Override model if set in run config
   const runModel = document.getElementById('runModel').value.trim();
@@ -696,6 +697,134 @@ function exportIntelligenceResult() {
   a.download = `intelligence-${currentDS()}-${new Date().toISOString().slice(0,19)}.json`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/* ─── History ─── */
+async function loadChannelHistory() {
+  try {
+    const data = await api('/api/channel/history');
+    const list = data.history || [];
+    const el = document.getElementById('channelHistoryList');
+    if (list.length === 0) {
+      el.innerHTML = '<div class="muted">暂无历史记录</div>';
+      return;
+    }
+    el.innerHTML = list.map(r => {
+      const time = r.timestamp ? new Date(r.timestamp).toLocaleString() : '-';
+      const passed = (r.checks || []).filter(c => c.pass).length;
+      const total = (r.checks || []).length;
+      const score = r.score ? r.score.total_score.toFixed(1) : '-';
+      return `<div class="history-row" style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line-soft);cursor:pointer" onclick="viewChannelHistory('${esc(r.id)}')">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:500">${esc(r.target || '-')}</div>
+          <div class="muted" style="font-size:11px">${time} · ${esc(r.model || '-')}</div>
+        </div>
+        <div style="font-size:12px">${passed}/${total}</div>
+        <div style="font-size:12px;font-weight:500">${score} pts</div>
+        <div style="font-size:11px;color:var(--ink-3)">${((r.elapsed_ms || 0) / 1000).toFixed(1)}s</div>
+        <button class="btn btn-quiet btn-sm" onclick="event.stopPropagation();deleteChannelHistory('${esc(r.id)}')" title="删除">✕</button>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('channelHistoryList').innerHTML = '<div style="color:var(--bad)">加载失败</div>';
+  }
+}
+
+async function viewChannelHistory(id) {
+  try {
+    const data = await api('/api/channel/history/' + encodeURIComponent(id));
+    lastChannelResult = data;
+    renderChannelResult(data);
+    showChannelSub('overview');
+  } catch (e) {
+    alert('加载历史详情失败');
+  }
+}
+
+async function deleteChannelHistory(id) {
+  if (!confirm('确定删除此条历史记录?')) return;
+  try {
+    await api('/api/channel/history/' + encodeURIComponent(id), {method: 'DELETE'});
+    loadChannelHistory();
+  } catch (e) {
+    alert('删除失败');
+  }
+}
+
+/* ─── Benchmark History ─── */
+let benchMainEls = null;
+function showBenchSub(sub) {
+  const historyEl = document.getElementById('benchSubHistory');
+  if (!benchMainEls) {
+    const main = document.querySelector('[data-app-pane="bench"] .main');
+    benchMainEls = Array.from(main.children).filter(el => el.id !== 'benchSubHistory');
+  }
+  if (sub === 'history') {
+    benchMainEls.forEach(el => el.style.display = 'none');
+    historyEl.classList.remove('hidden');
+    loadBenchHistory();
+  } else {
+    benchMainEls.forEach(el => el.style.display = '');
+    historyEl.classList.add('hidden');
+  }
+}
+
+async function loadBenchHistory() {
+  try {
+    const data = await api('/api/intelligence/history');
+    const list = data.history || [];
+    const el = document.getElementById('benchHistoryList');
+    if (list.length === 0) {
+      el.innerHTML = '<div class="muted">暂无历史记录</div>';
+      return;
+    }
+    el.innerHTML = list.map(r => {
+      return `<div class="history-row" style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line-soft);cursor:pointer" onclick="viewBenchHistory('${esc(r.id)}')">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:500">${esc(r.dataset_name || '-')}</div>
+          <div class="muted" style="font-size:11px">${esc(r.started_at || '-')} · ${esc(r.model || '-')}${r.thinking ? ' · thinking' : ''}</div>
+        </div>
+        <div style="font-size:12px">${r.task_completed}/${r.task_total}</div>
+        <div style="font-size:12px;${r.task_errors > 0 ? 'color:var(--bad)' : ''}">${r.task_errors} err</div>
+        <div style="font-size:11px;color:var(--ink-3)">${((r.elapsed_ms || 0) / 1000).toFixed(1)}s</div>
+        <button class="btn btn-quiet btn-sm" onclick="event.stopPropagation();deleteBenchHistory('${esc(r.id)}')" title="删除">✕</button>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('benchHistoryList').innerHTML = '<div style="color:var(--bad)">加载失败</div>';
+  }
+}
+
+async function viewBenchHistory(id) {
+  try {
+    const data = await api('/api/intelligence/history/' + encodeURIComponent(id));
+    lastIntelligenceResult = data;
+    showBenchSub('main');
+    // Render results
+    document.getElementById('rawIntelligence').textContent = JSON.stringify(data, null, 2);
+    document.getElementById('rawIntelligence').classList.remove('hidden');
+    renderIntelligenceSummary(data);
+    document.getElementById('intelligenceProgressCard').classList.remove('hidden');
+    // Render individual results
+    const resultList = document.getElementById('intelligenceResultList');
+    resultList.innerHTML = '';
+    (data.results || []).forEach(r => appendResultCard(r));
+    document.getElementById('intelligenceResultCard').classList.remove('hidden');
+    document.getElementById('intelligenceResultMeta').textContent =
+      `${data.task_total} tasks | ${data.model} | ${(data.elapsed_ms / 1000).toFixed(1)}s`;
+  } catch (e) {
+    alert('加载历史详情失败');
+  }
+}
+
+async function deleteBenchHistory(id) {
+  if (!confirm('确定删除此条历史记录?')) return;
+  try {
+    await api('/api/intelligence/history/' + encodeURIComponent(id), {method: 'DELETE'});
+    loadBenchHistory();
+  } catch (e) {
+    alert('删除失败');
+  }
 }
 
 /* ─── Init ─── */

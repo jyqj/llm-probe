@@ -15,6 +15,7 @@ type API struct {
 	channelStore         *channeltest.Store
 	intelligenceRegistry *intelligence.Registry
 	intelligenceRunner   *intelligence.Runner
+	intelligenceHistory  *intelligence.HistoryStore
 	auditRunner          *audit.Runner
 }
 
@@ -25,6 +26,7 @@ func New(cfg *config.Config, logger *slog.Logger, channelStore *channeltest.Stor
 		channelStore:         channelStore,
 		intelligenceRegistry: intelligenceRegistry,
 		intelligenceRunner:   intelligenceRunner,
+		intelligenceHistory:  intelligence.NewHistoryStore(),
 		auditRunner:          audit.NewRunner(channelStore, intelligenceRegistry, intelligenceRunner),
 	}
 }

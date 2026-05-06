@@ -9,11 +9,15 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	// 渠道测试：判断 API 是否像真实 Anthropic/Claude 渠道。
 	mux.HandleFunc("/api/channel/run", a.adminAuth(a.handleChannelRun))
 	mux.HandleFunc("/api/channel/report", a.adminAuth(a.handleChannelReport))
+	mux.HandleFunc("/api/channel/history", a.adminAuth(a.handleChannelHistory))
+	mux.HandleFunc("/api/channel/history/", a.adminAuth(a.handleChannelHistoryDetail))
 
 	// 智商测试：数据集、题库加载和模型能力运行。
 	mux.HandleFunc("/api/intelligence/datasets", a.adminAuth(a.handleIntelligenceList))
 	mux.HandleFunc("/api/intelligence/datasets/", a.adminAuth(a.handleIntelligenceDatasetRoute))
 	mux.HandleFunc("/api/intelligence/fetch", a.adminAuth(a.handleIntelligenceFetch))
+	mux.HandleFunc("/api/intelligence/history", a.adminAuth(a.handleIntelligenceHistory))
+	mux.HandleFunc("/api/intelligence/history/", a.adminAuth(a.handleIntelligenceHistoryDetail))
 
 	// 综合审计：只编排渠道测试 + 智商测试，不承载具体检测逻辑。
 	mux.HandleFunc("/api/audit/run", a.adminAuth(a.handleAuditRun))

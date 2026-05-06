@@ -13,15 +13,9 @@ import (
 	"time"
 )
 
-const defaultMaxTokens = 4096
-
 func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent func(StreamEvent)) (*RunReport, error) {
 	if err := validateRequest(req); err != nil {
 		return nil, err
-	}
-	maxTokens := req.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = defaultMaxTokens
 	}
 	concurrency := req.Concurrency
 	if concurrency <= 0 {
@@ -38,11 +32,13 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 	total := len(tasks)
 
 	report := &RunReport{
+		ID:             fmt.Sprintf("%d", started.UnixNano()),
 		DatasetName:    ds.Name(),
 		DatasetVersion: ds.Version(),
 		Source:         ds.Source(),
 		Target:         strings.TrimRight(req.TargetBase, "/"),
 		Model:          req.Model,
+		Thinking:       req.Thinking,
 		StartedAt:      started,
 		TaskTotal:      total,
 		EvaluationNote: "Intelligence-test results recorded for offline/judge-based scoring.",
@@ -67,7 +63,7 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 
 			res := TaskRunResult{Index: idx, Task: t.Summary(false), Rubric: t.Rubric}
 			oneStarted := time.Now()
-			answer, err := r.ask(ctx, req.TargetBase, req.TargetKey, req.Model, maxTokens, t.Prompt)
+			answer, err := r.ask(ctx, req.TargetBase, req.TargetKey, req.Model, req.Thinking, t.Prompt)
 			res.ElapsedMs = time.Since(oneStarted).Milliseconds()
 			if err != nil {
 				res.Error = err.Error()
@@ -110,13 +106,15 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 	return report, nil
 }
 
-func (r *Runner) ask(ctx context.Context, targetBase, targetKey, model string, maxTokens int, prompt string) (string, error) {
+func (r *Runner) ask(ctx context.Context, targetBase, targetKey, model string, thinking bool, prompt string) (string, error) {
 	payload := map[string]any{
-		"model":      model,
-		"max_tokens": maxTokens,
+		"model": model,
 		"messages": []any{
 			map[string]any{"role": "user", "content": prompt},
 		},
+	}
+	if thinking {
+		payload["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 10000}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

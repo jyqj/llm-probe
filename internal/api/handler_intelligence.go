@@ -121,6 +121,7 @@ func (a *API) handleDatasetRun(w http.ResponseWriter, r *http.Request, ds intell
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
+	a.intelligenceHistory.Add(report)
 	writeJSON(w, http.StatusOK, report)
 }
 
@@ -161,11 +162,14 @@ func (a *API) handleDatasetStream(w http.ResponseWriter, r *http.Request, ds int
 		mu.Unlock()
 	}
 
-	_, err := a.intelligenceRunner.RunStream(r.Context(), ds, req, func(ev intelligence.StreamEvent) {
+	report, err := a.intelligenceRunner.RunStream(r.Context(), ds, req, func(ev intelligence.StreamEvent) {
 		writeSSE(ev)
 	})
 	if err != nil {
 		writeSSE(intelligence.StreamEvent{Type: "error", ErrorMsg: err.Error()})
+	}
+	if report != nil {
+		a.intelligenceHistory.Add(report)
 	}
 }
 
@@ -230,4 +234,38 @@ func (a *API) uploadMultipart(r *http.Request, dsName string) (intelligence.Data
 		return intelligence.LoadJSON(file, name, version, "user-upload")
 	}
 	return intelligence.LoadCSV(file, name, version, "user-upload")
+}
+
+func (a *API) handleIntelligenceHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"history": a.intelligenceHistory.List()})
+}
+
+func (a *API) handleIntelligenceHistoryDetail(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/intelligence/history/")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "id is required"})
+		return
+	}
+	if r.Method == http.MethodDelete {
+		if a.intelligenceHistory.Delete(id) {
+			writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+		} else {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		}
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	report := a.intelligenceHistory.Get(id)
+	if report == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
 }

@@ -56,6 +56,10 @@
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>
         原始数据
       </a>
+      <a class="side-link" onclick="showChannelSub('history')">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        历史记录
+      </a>
     </div>
     <div class="side-foot">
       <div class="avatar">P</div>
@@ -208,6 +212,19 @@
         <pre class="json-out" id="rawChannel">暂无数据</pre>
       </div>
     </div>
+
+    <!-- ═══ Sub: 历史记录 ═══ -->
+    <div id="channelSubHistory" class="hidden">
+      <div class="card flush">
+        <div class="card-head">
+          <h3>渠道测试历史</h3>
+          <span class="muted" style="font-size:12px">点击查看详情 · 支持删除</span>
+        </div>
+        <div id="channelHistoryList" style="padding:14px 18px">
+          <div class="muted">加载中...</div>
+        </div>
+      </div>
+    </div>
   </main>
 </section>
 
@@ -224,6 +241,10 @@
       <a class="side-link" onclick="showUploadDialog()">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         导入数据集
+      </a>
+      <a class="side-link" onclick="showBenchSub('history')">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        历史记录
       </a>
     </div>
 
@@ -326,12 +347,22 @@
           <input id="runConcurrency" type="number" value="5" min="1" max="20">
         </div>
         <div class="runcfg-cell">
-          <div class="k">Max tokens</div>
-          <input id="runMaxTokens" type="number" value="4096">
+          <div class="k">Thinking</div>
+          <select id="runThinking">
+            <option value="off">关闭</option>
+            <option value="on">开启</option>
+          </select>
         </div>
         <div class="runcfg-cell">
           <div class="k">模型</div>
-          <input id="runModel" value="" class="mono" placeholder="使用设置页模型">
+          <div style="position:relative">
+            <input id="runModel" list="runModelList" class="input mono" placeholder="使用渠道测试模型" value="">
+            <datalist id="runModelList">
+              <option value="claude-opus-4-6">
+              <option value="claude-opus-4-7">
+              <option value="claude-sonnet-4-6">
+            </datalist>
+          </div>
         </div>
       </div>
       <div id="runFilters" style="padding:14px 18px;border-top:1px solid var(--line-soft);display:flex;gap:12px;align-items:end;flex-wrap:wrap">
@@ -406,6 +437,19 @@
 
     <!-- Raw data -->
     <pre class="json-out hidden" id="rawIntelligence" style="margin-top:16px">暂无数据</pre>
+
+    <!-- ═══ Benchmark 历史记录 ═══ -->
+    <div id="benchSubHistory" class="hidden">
+      <div class="card flush">
+        <div class="card-head">
+          <h3>Benchmark 历史</h3>
+          <span class="muted" style="font-size:12px">点击查看详情 · 支持删除</span>
+        </div>
+        <div id="benchHistoryList" style="padding:14px 18px">
+          <div class="muted">加载中...</div>
+        </div>
+      </div>
+    </div>
   </main>
 </section>
 
