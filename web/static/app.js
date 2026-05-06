@@ -1,21 +1,78 @@
 /* ─── State ─── */
 let lastChannelResult = null;
 let lastIntelligenceResult = null;
-let lastAuditResult = null;
+let channelQuickMode = true;
+let currentDataset = '';
+let allDatasets = [];
+let intelligenceAbort = null;
+let intelligenceStartTime = null;
+let intelligenceTimer = null;
+let intelligenceStreamResults = [];
+let currentCheckFilter = 'all';
+
+/* ─── Settings persistence ─── */
+function loadSettings() {
+  const s = JSON.parse(localStorage.getItem('llm-probe-settings') || '{}');
+  if (s.targetBase) document.getElementById('targetBase').value = s.targetBase;
+  if (s.targetKey) document.getElementById('targetKey').value = s.targetKey;
+  if (s.model) document.getElementById('model').value = s.model;
+  if (s.adminToken) document.getElementById('adminToken').value = s.adminToken;
+  updateConnStatus();
+}
+function saveSettings() {
+  const s = {
+    targetBase: document.getElementById('targetBase').value.trim(),
+    targetKey: document.getElementById('targetKey').value.trim(),
+    model: document.getElementById('model').value.trim(),
+    adminToken: document.getElementById('adminToken').value.trim(),
+  };
+  localStorage.setItem('llm-probe-settings', JSON.stringify(s));
+  updateConnStatus();
+}
+function updateConnStatus() {
+  const base = document.getElementById('targetBase').value.trim();
+  const el = document.getElementById('connStatus');
+  const label = document.getElementById('connLabel');
+  if (base) {
+    el.classList.add('connected');
+    try {
+      const u = new URL(base);
+      label.textContent = '已连接 · ' + u.hostname.substring(0, 20);
+    } catch {
+      label.textContent = '已配置';
+    }
+  } else {
+    el.classList.remove('connected');
+    label.textContent = '未配置';
+  }
+  // Update live displays
+  document.getElementById('channelLiveTarget').textContent = base || '未配置';
+  document.getElementById('channelLiveModel').textContent =
+    document.getElementById('model').value.trim() || 'claude-opus-4-6';
+}
 
 /* ─── Navigation ─── */
-function showView(name) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.getElementById('view-' + name).classList.add('active');
-  document.querySelectorAll('.sidebar nav button').forEach(b => {
-    b.classList.toggle('active', b.dataset.view === name);
+function switchApp(name) {
+  document.querySelectorAll('[data-app-pane]').forEach(el => {
+    el.hidden = el.dataset.appPane !== name;
   });
+  document.querySelectorAll('.appswitch button').forEach(b => {
+    b.classList.toggle('active', b.dataset.app === name);
+  });
+  if (name === 'settings') updateConnStatus();
 }
-function showRawTab(id, btn) {
-  document.querySelectorAll('#view-raw pre').forEach(p => p.classList.add('hidden'));
-  document.getElementById(id).classList.remove('hidden');
-  document.querySelectorAll('#view-raw .tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+
+function showChannelSub(sub) {
+  ['Overview', 'Checks', 'Raw'].forEach(s => {
+    const el = document.getElementById('channelSub' + s);
+    if (el) el.classList.toggle('hidden', s.toLowerCase() !== sub);
+  });
+  // Update sidebar active state
+  document.querySelectorAll('[data-app-pane="channel"] .side-link').forEach((link, i) => {
+    const subs = ['overview', 'checks', 'raw'];
+    link.classList.toggle('channel-active', subs[i] === sub);
+    link.classList.toggle('active', false);
+  });
 }
 
 /* ─── API Helpers ─── */
@@ -40,72 +97,35 @@ async function api(url, opt = {}) {
   if (!r.ok) throw data;
   return data;
 }
+function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
 
-/* ─── Render Helpers ─── */
-const colorMap = {green:'var(--green)',blue:'var(--blue)',yellow:'var(--yellow)',orange:'var(--orange)',red:'var(--red)'};
-const verdictClassMap = {green:'verdict-green',blue:'verdict-blue',yellow:'verdict-yellow',orange:'verdict-orange',red:'verdict-red'};
-
-function renderScoreRing(arcId, gradeId, ptsId, score) {
-  const circumference = 364.4;
-  const offset = circumference - (score.total_score / 100) * circumference;
-  const arc = document.getElementById(arcId);
-  arc.style.strokeDashoffset = offset;
-  arc.style.stroke = colorMap[score.grade_color] || 'var(--accent)';
-  document.getElementById(gradeId).textContent = score.grade;
-  document.getElementById(gradeId).style.color = colorMap[score.grade_color] || 'var(--text)';
-  document.getElementById(ptsId).textContent = score.total_score + ' pts';
-}
-
-function renderCatBars(containerId, categories) {
-  const el = document.getElementById(containerId);
-  el.innerHTML = categories.map(c => {
-    const barColor = c.percentage >= 80 ? 'var(--green)' : c.percentage >= 50 ? 'var(--yellow)' : 'var(--red)';
-    return `<div class="cat-item">
-      <div class="cat-label">${c.label}</div>
-      <div class="cat-bar-wrap"><div class="cat-bar" style="width:${c.percentage}%;background:${barColor}"></div></div>
-      <div class="cat-pct" style="color:${barColor}">${Math.round(c.percentage)}%</div>
-    </div>`;
-  }).join('');
-}
-
-function renderChecks(containerId, checks) {
-  // Group by category
-  const groups = {};
-  const catNames = {'fingerprint':'LLM 指纹验证','structural':'结构完整性','signature':'签名校验','behavioral':'行为验证','multimodal':'多模态能力'};
-  const catMap = {};
-  // Build category mapping from check names
-  checks.forEach(c => {
-    const cat = guessCategory(c.name);
-    if (!groups[cat]) groups[cat] = [];
-    groups[cat].push(c);
-  });
-  const el = document.getElementById(containerId);
-  el.innerHTML = Object.entries(groups).map(([cat, items]) => {
-    const passed = items.filter(c => c.pass).length;
-    const label = catNames[cat] || cat;
-    return `<div class="check-group">
-      <div class="check-group-header" onclick="this.querySelector('.arrow').classList.toggle('open');this.nextElementSibling.classList.toggle('hidden')">
-        <span class="arrow open">&#9654;</span>
-        <span class="cat-name">${label}</span>
-        <span class="cat-count">${passed}/${items.length}</span>
-      </div>
-      <div class="check-items">${items.map(c => `<div class="check-row">
-        <span class="check-dot ${c.pass?'pass':'fail'}"></span>
-        <span class="check-name">${c.name}</span>
-        <span class="check-detail" title="${esc(c.detail)}">${esc(c.detail)}</span>
-        ${c.fix && !c.pass ? `<span class="check-fix">${c.fix}</span>` : ''}
-      </div>`).join('')}</div>
-    </div>`;
-  }).join('');
-}
-
+/* ─── Color maps ─── */
+const gradeColorMap = {
+  green: 'var(--good)', blue: 'var(--info)', yellow: 'var(--warn)',
+  orange: 'var(--accent)', red: 'var(--bad)'
+};
+const verdictPillMap = {
+  green: 'pill-good', blue: 'pill-info', yellow: 'pill-warn',
+  orange: 'pill-warn', red: 'pill-bad'
+};
+const catSwatchMap = {
+  fingerprint: 'var(--cat-fp)', structural: 'var(--cat-st)',
+  signature: 'var(--cat-sg)', behavioral: 'var(--cat-bh)',
+  multimodal: 'var(--cat-mm)'
+};
+const catNameMap = {
+  fingerprint: '指纹 Fingerprint', structural: '结构 Structural',
+  signature: '签名 Signature', behavioral: '行为 Behavioral',
+  multimodal: '多模态 Multimodal'
+};
 const checkCatMap = {
   id_format:'fingerprint',backend_type:'fingerprint',inference_geo:'fingerprint',
   stop_details:'fingerprint',stop_details_structure:'fingerprint',
   small_output_tokens:'fingerprint',small_stop_reason:'fingerprint',
   container:'fingerprint',bedrock_state:'fingerprint',request_id:'fingerprint',
   x_new_api_version:'fingerprint',cf_ray_format:'fingerprint',cookie_domain:'fingerprint',
-  hidden_prompt:'fingerprint',
+  hidden_prompt:'fingerprint',token_budget:'fingerprint',service_tier:'fingerprint',
+  server_header:'fingerprint',signature_type_leak:'fingerprint',
   usage_structure:'structural',field_order:'structural',model_name:'structural',
   stop_reason:'structural',tool_stop_reason:'structural',delta_usage_slim:'structural',
   message_start_usage:'structural',message_start_output_zero:'structural',
@@ -116,91 +136,23 @@ const checkCatMap = {
   server_timing:'structural',sse_done:'structural',sse_event_order:'structural',
   sse_tailing:'structural',sse_ping_position:'structural',cache_small_probe:'structural',
   cache_fake:'structural',small_ephemeral_zero:'structural',small_cache_zero:'structural',
-  stop_sequence_null:'structural',
+  stop_sequence_null:'structural',usage_fields_complete:'structural',
+  cache_creation_complete:'structural',server_tool_type:'structural',
+  citations_present:'structural',body_key_order:'structural',server_tool_usage:'structural',
   signature:'signature',signature_length:'signature',thinking_present:'signature',
   thinking_order:'signature',thinking_display_omitted:'signature',no_thinking_leak:'signature',
   tag_replay:'behavioral',identity_response:'behavioral',identity_no_leak:'behavioral',
   identity_platform:'behavioral',poison_answer:'behavioral',logic_answer:'behavioral',
-  tool_forced_compliance:'behavioral',magic_refusal:'behavioral',
+  tool_forced_compliance:'behavioral',
   image_ocr:'multimodal',pdf_extract:'multimodal'
 };
 function guessCategory(name) { return checkCatMap[name] || 'other'; }
-function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
 
-/* ─── Audit ─── */
-async function runAudit() {
-  const btn = document.getElementById('btnAudit');
-  btn.disabled = true;
-  document.getElementById('auditPlaceholder').classList.add('hidden');
-  document.getElementById('auditResult').classList.add('hidden');
-  document.getElementById('auditLoading').classList.remove('hidden');
-
-  try {
-    const p = {
-      ...targetPayload(),
-      quick_channel: document.getElementById('auditMode').value === 'quick',
-      intelligence_limit: parseInt(document.getElementById('auditIntelligenceLimit').value) || 0
-    };
-    const data = await api('/api/audit/run', {method: 'POST', body: JSON.stringify(p)});
-    lastAuditResult = data;
-    document.getElementById('rawAudit').textContent = JSON.stringify(data, null, 2);
-
-    // Render channel score
-    const det = data.channel;
-    if (det && det.score) {
-      renderScoreRing('scoreArc', 'scoreGrade', 'scorePts', det.score);
-      const vc = verdictClassMap[det.score.verdict_color] || 'verdict-blue';
-      const vEl = document.getElementById('scoreVerdict');
-      vEl.className = 'verdict-badge ' + vc;
-      vEl.textContent = det.score.verdict_label;
-      document.getElementById('scoreSummary').textContent = det.summary || '';
-      renderCatBars('catBars', det.score.categories || []);
-
-      // Quick stats
-      document.getElementById('quickStats').innerHTML = `
-        <div class="stat"><div class="stat-val" style="color:${colorMap[det.score.grade_color]}">${det.score.total_score}</div><div class="stat-label">检测得分</div></div>
-        <div class="stat"><div class="stat-val">${det.score.checks_passed}/${det.score.checks_total}</div><div class="stat-label">检查通过</div></div>
-        <div class="stat"><div class="stat-val">${det.elapsed_ms || '-'}ms</div><div class="stat-label">检测耗时</div></div>
-        <div class="stat"><div class="stat-val">${data.elapsed_ms || '-'}ms</div><div class="stat-label">总耗时</div></div>
-      `;
-    }
-
-    // Render intelligence summary
-    const intelligence = data.intelligence;
-    if (intelligence && intelligence.results) {
-      document.getElementById('intelligenceSummaryMeta').textContent =
-        `${intelligence.task_total} tasks | ${intelligence.model} | ${intelligence.elapsed_ms}ms`;
-      document.getElementById('intelligenceSummaryBody').innerHTML = intelligence.results.map(r => {
-        const hasErr = !!r.error;
-        return `<div class="task-card">
-          <div class="task-meta">
-            <span class="tag tag-lang">${r.task.language}</span>
-            <span class="tag tag-cat">${r.task.category}</span>
-            <span class="text-sm text-muted">${r.elapsed_ms}ms</span>
-            ${hasErr ? '<span class="tag" style="background:var(--red-bg);color:var(--red)">Error</span>' : ''}
-          </div>
-          <div class="task-prompt">${esc(r.task.prompt.substring(0, 200))}...</div>
-          ${r.answer ? `<div class="task-answer">${esc(r.answer.substring(0, 500))}</div>` : ''}
-          ${r.error ? `<div class="task-answer" style="color:var(--red)">${esc(r.error)}</div>` : ''}
-        </div>`;
-      }).join('');
-    } else if (data.intelligence_error) {
-      document.getElementById('intelligenceSummaryBody').innerHTML = `<div class="text-muted">智商测试 error: ${esc(data.intelligence_error)}</div>`;
-    }
-
-    document.getElementById('auditResult').classList.remove('hidden');
-
-    // Also update channel page data
-    if (det && det.checks) {
-      lastChannelResult = det;
-      renderChannelResult(det);
-    }
-  } catch (e) {
-    alert('审计失败: ' + (typeof e === 'string' ? e : JSON.stringify(e)));
-  } finally {
-    document.getElementById('auditLoading').classList.add('hidden');
-    btn.disabled = false;
-  }
+/* ─── Channel Mode ─── */
+function setChannelMode(quick, btn) {
+  channelQuickMode = quick;
+  btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
 }
 
 /* ─── Channel Test ─── */
@@ -212,7 +164,7 @@ async function runChannel() {
   document.getElementById('channelLoading').classList.remove('hidden');
 
   try {
-    const p = {...targetPayload(), quick: document.getElementById('channelMode').value === 'true'};
+    const p = {...targetPayload(), quick: channelQuickMode};
     const data = await api('/api/channel/run', {method: 'POST', body: JSON.stringify(p)});
     lastChannelResult = data;
     document.getElementById('rawChannel').textContent = JSON.stringify(data, null, 2);
@@ -227,54 +179,247 @@ async function runChannel() {
 }
 
 function renderChannelResult(data) {
+  const checks = data.checks || [];
+  const passed = checks.filter(c => c.pass).length;
+  const failed = checks.length - passed;
+
+  // Score ring
   if (data.score) {
-    renderScoreRing('channelScoreArc', 'channelGrade', 'channelPts', data.score);
-    const vc = verdictClassMap[data.score.verdict_color] || 'verdict-blue';
-    const vEl = document.getElementById('channelVerdict');
-    vEl.className = 'verdict-badge ' + vc;
-    vEl.textContent = data.score.verdict_label;
+    const circumference = 603.2;
+    const offset = circumference - (data.score.total_score / 100) * circumference;
+    const arc = document.getElementById('channelScoreArc');
+    arc.style.strokeDashoffset = offset;
+    const color = gradeColorMap[data.score.grade_color] || 'var(--accent)';
+    arc.style.stroke = color;
+    document.getElementById('channelGrade').textContent = data.score.grade;
+    document.getElementById('channelGrade').style.color = color;
+    document.getElementById('channelPts').textContent = data.score.total_score;
+
+    // Verdict pill
+    const vp = document.getElementById('channelVerdict');
+    vp.className = 'pill ' + (verdictPillMap[data.score.verdict_color] || 'pill-info');
+    vp.innerHTML = '<span class="dot"></span><span>' + esc(data.score.verdict_label) + '</span>';
+
+    // Summary
+    document.getElementById('channelSummaryTitle').innerHTML =
+      data.score.total_score >= 80
+        ? '大概率为<em>官方直连</em>' + (failed > 0 ? ',但有 ' + failed + ' 处偏差' : '')
+        : data.score.total_score >= 50
+          ? '存在<em>明显偏差</em>,建议检查'
+          : '疑似<em>非官方渠道</em>';
+    document.getElementById('channelSummaryDesc').textContent = data.summary || '';
+
+    // Score meta
+    document.getElementById('channelScoreMeta').innerHTML = `
+      <div class="score-meta-item"><div class="k">checks</div><div class="v">${passed} / ${checks.length}</div></div>
+      <div class="score-meta-item"><div class="k">elapsed</div><div class="v">${((data.elapsed_ms || 0) / 1000).toFixed(1)} s</div></div>
+      <div class="score-meta-item"><div class="k">target</div><div class="v mono" style="font-size:12px">${esc(data.target || '-')}</div></div>
+    `;
+
+    // Category bars
     renderCatBars('channelCatBars', data.score.categories || []);
   }
-  document.getElementById('channelMeta').textContent =
-    `Target: ${data.target || '-'} | Model: ${data.model || '-'} | ${data.elapsed_ms || '-'}ms`;
-  if (data.checks) {
-    document.getElementById('channelCheckCount').textContent =
-      `${data.checks.filter(c => c.pass).length}/${data.checks.length} passed`;
-    renderChecks('channelChecks', data.checks);
-  }
+
+  // Stats
+  document.getElementById('chkTotal').textContent = checks.length;
+  document.getElementById('chkPassed').innerHTML = passed + '<small>/' + checks.length + '</small>';
+  document.getElementById('chkFailed').textContent = failed;
+  document.getElementById('chkElapsed').innerHTML =
+    ((data.elapsed_ms || 0) / 1000).toFixed(1) + '<small>s</small>';
+
+  // Fix panel
+  const failures = checks.filter(c => !c.pass);
+  renderFixPanel(failures);
+
+  // Check details
+  renderChecks('channelChecks', checks);
+
   document.getElementById('channelResult').classList.remove('hidden');
+  showChannelSub('overview');
 }
 
-/* ─── 智商测试 ─── */
-let intelligenceAbort = null;
-let intelligenceStartTime = null;
-let intelligenceTimer = null;
-let intelligenceStreamResults = [];
-let currentDataset = '';
-let allDatasets = [];
+function renderCatBars(containerId, categories) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = categories.map(c => {
+    const cat = (c.key || '').toLowerCase();
+    const swatch = catSwatchMap[cat] || 'var(--ink-3)';
+    const pctColor = c.percentage >= 80 ? 'var(--good)' : c.percentage >= 50 ? 'var(--warn)' : 'var(--bad)';
+    return `<div class="cat">
+      <div class="cat-name"><span class="swatch" style="background:${swatch}"></span>${esc(c.label)}</div>
+      <div class="cat-track"><div class="cat-fill" style="width:${c.percentage}%;background:${swatch}"></div></div>
+      <div class="cat-frac">${c.passed}/${c.total}</div>
+      <div class="cat-pct" style="color:${pctColor}">${Math.round(c.percentage)}%</div>
+    </div>`;
+  }).join('');
+}
 
+function renderFixPanel(failures) {
+  const list = document.getElementById('channelFixList');
+  if (failures.length === 0) {
+    list.innerHTML = '<div class="muted" style="font-size:13px;padding:8px 0">全部通过,无需修复</div>';
+    return;
+  }
+  list.innerHTML = failures.slice(0, 5).map((c, i) => `
+    <div class="fix-item">
+      <div class="num">${String(i + 1).padStart(2, '0')}</div>
+      <div>
+        <div class="what">${esc(c.name)}</div>
+        <div class="how">${esc(c.detail)}${c.fix ? ' — fix: ' + esc(c.fix) : ''}</div>
+      </div>
+    </div>
+  `).join('');
+  if (failures.length > 5) {
+    list.innerHTML += `<div class="muted" style="font-size:12px;padding:4px 0;text-align:center">还有 ${failures.length - 5} 项...</div>`;
+  }
+}
+
+const svgCheck = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>';
+const svgCross = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+function renderChecks(containerId, checks) {
+  const groups = {};
+  checks.forEach(c => {
+    const cat = guessCategory(c.name);
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(c);
+  });
+
+  const el = document.getElementById(containerId);
+  const catOrder = ['fingerprint', 'structural', 'signature', 'behavioral', 'multimodal', 'other'];
+  let html = '';
+  catOrder.forEach(cat => {
+    const items = groups[cat];
+    if (!items) return;
+    const passed = items.filter(c => c.pass).length;
+    const swatch = catSwatchMap[cat] || 'var(--ink-3)';
+    const label = catNameMap[cat] || cat;
+
+    html += `<div class="checks-head" onclick="this.nextElementSibling.classList.toggle('hidden')">
+      <h4><span class="swatch" style="background:${swatch}"></span>${label}</h4>
+      <span class="frac">${passed} / ${items.length} 通过</span>
+      <span class="toggle">折叠 ▾</span>
+    </div>`;
+    html += '<div>';
+    items.forEach(c => {
+      if (currentCheckFilter === 'pass' && !c.pass) return;
+      if (currentCheckFilter === 'fail' && c.pass) return;
+      html += `<div class="check">
+        <div class="ind ${c.pass ? 'pass' : 'fail'}">${c.pass ? svgCheck : svgCross}</div>
+        <div class="name">${esc(c.name)}</div>
+        <div class="detail">${esc(c.detail)}</div>
+        ${!c.pass && c.fix ? '<span class="fix-pill">' + esc(c.fix) + '</span>' : ''}
+      </div>`;
+    });
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function filterChecks(mode, btn) {
+  currentCheckFilter = mode;
+  btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (lastChannelResult && lastChannelResult.checks) {
+    renderChecks('channelChecks', lastChannelResult.checks);
+  }
+}
+
+function exportChannel() {
+  if (!lastChannelResult) return;
+  const blob = new Blob([JSON.stringify(lastChannelResult, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `channel-${new Date().toISOString().slice(0,19)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ─── Intelligence / Benchmark ─── */
 function currentDS() { return currentDataset || 'SWE-Atlas-QnA'; }
 
 async function loadIntelligenceList() {
   try {
     const data = await api('/api/intelligence/datasets');
     allDatasets = data.datasets || [];
-    const sel = document.getElementById('intelligenceDatasetSelect');
-    sel.innerHTML = allDatasets.map(d =>
-      `<option value="${esc(d.name)}" ${d.name === currentDataset ? 'selected' : ''}>${esc(d.name)} (${d.total_tasks})</option>`
-    ).join('');
     if (allDatasets.length > 0 && !currentDataset) {
       currentDataset = allDatasets[0].name;
     }
+    renderDatasetSwitch();
+    renderSideDatasets();
     loadIntelligenceInfo();
   } catch (e) {
     console.error('loadIntelligenceList', e);
   }
 }
 
-function switchDataset() {
-  currentDataset = document.getElementById('intelligenceDatasetSelect').value;
+function renderDatasetSwitch() {
+  const el = document.getElementById('datasetSwitch');
+  let html = allDatasets.map(d => {
+    const active = d.name === currentDataset ? 'active' : '';
+    return `<div class="ds-tab ${active}" onclick="switchDataset('${esc(d.name)}')">
+      <div class="name">${esc(d.name)}</div>
+      <div class="ds-meta">${d.total_tasks} 题</div>
+    </div>`;
+  }).join('');
+  html += '<div class="ds-tab add" onclick="showUploadDialog()" title="添加数据集">+</div>';
+  el.innerHTML = html;
+}
+
+function renderSideDatasets() {
+  const el = document.getElementById('sideDatasets');
+  let html = '<div class="side-label">Datasets</div>';
+  allDatasets.forEach(d => {
+    html += `<a class="side-link" style="font-size:12px" onclick="switchDataset('${esc(d.name)}')">
+      <span class="tag" style="background:var(--accent-soft);color:var(--accent-ink)">${esc((d.name || '').substring(0, 3).toUpperCase())}</span>
+      ${esc(d.name)}
+    </a>`;
+  });
+  el.innerHTML = html;
+  document.getElementById('sideDatasetCount').textContent =
+    allDatasets.length + ' datasets · ' + allDatasets.reduce((s, d) => s + (d.total_tasks || 0), 0) + ' tasks';
+}
+
+function switchDataset(name) {
+  currentDataset = name;
+  renderDatasetSwitch();
   loadIntelligenceInfo();
+}
+
+async function loadIntelligenceInfo() {
+  const ds = currentDS();
+  try {
+    const d = await api(`/api/intelligence/datasets/${encodeURIComponent(ds)}`);
+    const s = d.stats;
+    const langTags = Object.entries(s.languages || {}).sort((a,b) => b[1]-a[1])
+      .map(([k,v]) => `<span class="tag tag-lang">${k} · ${v}</span>`).join('');
+    const catTags = Object.entries(s.categories || {}).sort((a,b) => b[1]-a[1])
+      .map(([k,v]) => `<span class="tag tag-cat">${k} · ${v}</span>`).join('');
+
+    document.getElementById('datasetInfo').innerHTML = `
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+            <h2 class="serif" style="font-size:24px;font-weight:400;letter-spacing:-0.02em">${esc(s.name)} ${s.version ? '<span class="muted serif" style="font-style:italic">v' + esc(s.version) + '</span>' : ''}</h2>
+            <span class="pill pill-info">已加载</span>
+          </div>
+          <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px">
+            ${langTags}
+            ${langTags && catTags ? '<span style="width:1px;background:var(--line);margin:0 4px"></span>' : ''}
+            ${catTags}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="serif tnum" style="font-size:44px;line-height:1;letter-spacing:-0.03em">${s.total_tasks}</div>
+          <div class="muted" style="font-size:11px;letter-spacing:0.06em;text-transform:uppercase;margin-top:4px">tasks</div>
+        </div>
+      </div>
+    `;
+    updateIntelligencePreview();
+  } catch (e) {
+    document.getElementById('datasetInfo').innerHTML =
+      '<span style="color:var(--bad)">加载失败: ' + esc(ds) + '</span>';
+  }
 }
 
 function showUploadDialog() {
@@ -285,7 +430,7 @@ function showAddTab(tabId, btn) {
   document.getElementById('tabFetch').classList.add('hidden');
   document.getElementById('tabUpload').classList.add('hidden');
   document.getElementById(tabId).classList.remove('hidden');
-  btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.parentElement.querySelectorAll('.upload-tab').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }
 
@@ -293,12 +438,11 @@ async function fetchFromHF() {
   const statusEl = document.getElementById('fetchStatus');
   const name = document.getElementById('fetchName').value;
   const limit = parseInt(document.getElementById('fetchLimit').value) || 0;
-  statusEl.textContent = '拉取中，请稍候...';
+  statusEl.textContent = '拉取中,请稍候...';
 
   try {
-    const h = headers();
     const resp = await fetch('/api/intelligence/fetch', {
-      method: 'POST', headers: h,
+      method: 'POST', headers: headers(),
       body: JSON.stringify({name, limit: limit > 0 ? limit : undefined})
     });
     const data = await resp.json();
@@ -345,20 +489,19 @@ async function uploadDataset() {
 function toggleRunScope() {
   const scope = document.getElementById('runScope').value;
   const filters = document.getElementById('runFilters');
-  const idsWrap = document.getElementById('runIDsWrap');
-  if (scope === 'all') {
-    filters.style.display = 'none';
-  } else {
-    filters.style.display = '';
-    idsWrap.style.display = scope === 'ids' ? '' : 'none';
-  }
+  filters.style.display = scope === 'all' ? 'none' : '';
   updateIntelligencePreview();
 }
 
 function updateIntelligencePreview() {
   const scope = document.getElementById('runScope').value;
   const el = document.getElementById('intelligencePreview');
-  if (scope === 'all') { el.textContent = '将运行全部 124 题'; return; }
+  const el2 = document.getElementById('runPreview');
+  if (scope === 'all') {
+    el.textContent = '将运行全部题目';
+    el2.textContent = '全量运行';
+    return;
+  }
   const lang = document.getElementById('runLang').value.trim();
   const cat = document.getElementById('runCategory').value.trim();
   const limit = parseInt(document.getElementById('runLimit').value) || 0;
@@ -366,63 +509,9 @@ function updateIntelligencePreview() {
   if (lang) desc.push('lang=' + lang);
   if (cat) desc.push('cat=' + cat);
   if (limit > 0) desc.push('limit=' + limit);
-  el.textContent = desc.length ? desc.join(', ') : '全部 124 题';
-}
-
-async function loadIntelligenceInfo() {
-  const ds = currentDS();
-  try {
-    const d = await api(`/api/intelligence/datasets/${encodeURIComponent(ds)}`);
-    const s = d.stats;
-    const langHtml = Object.entries(s.languages || {}).sort((a,b) => b[1]-a[1]).map(([k,v]) => `<span class="tag tag-lang" style="margin:2px">${k}: ${v}</span>`).join('') || '<span class="text-muted">-</span>';
-    const catHtml = Object.entries(s.categories || {}).sort((a,b) => b[1]-a[1]).map(([k,v]) => `<span class="tag tag-cat" style="margin:2px">${k}: ${v}</span>`).join('') || '<span class="text-muted">-</span>';
-    document.getElementById('intelligenceInfo').innerHTML = `
-      <div class="grid-3 mb-8">
-        <div class="stat"><div class="stat-val" style="color:var(--green)">${s.total_tasks}</div><div class="stat-label">Total Tasks</div></div>
-        <div class="stat"><div class="stat-val">${Object.keys(s.languages || {}).length}</div><div class="stat-label">Languages</div></div>
-        <div class="stat"><div class="stat-val">${Object.keys(s.categories || {}).length}</div><div class="stat-label">Categories</div></div>
-      </div>
-      <div class="mb-8">Languages: ${langHtml}</div>
-      <div>Categories: ${catHtml}</div>
-    `;
-    document.getElementById('intelligenceDatasetLabel').textContent = `${s.name} ${s.version ? 'v'+s.version : ''} (${s.total_tasks} tasks)`;
-    // Update run scope label
-    const allOpt = document.querySelector('#runScope option[value="all"]');
-    if (allOpt) allOpt.textContent = `全量运行 (${s.total_tasks} 题)`;
-  } catch (e) {
-    document.getElementById('intelligenceInfo').innerHTML = '<span style="color:var(--red)">加载失败: ' + esc(ds) + '</span>';
-  }
-}
-
-async function listTasks() {
-  const el = document.getElementById('taskList');
-  el.innerHTML = '<div class="loading-overlay"><div class="spinner"></div></div>';
-  try {
-    const q = new URLSearchParams();
-    const lang = document.getElementById('taskLang').value.trim();
-    const cat = document.getElementById('taskCategory').value.trim();
-    const limit = document.getElementById('taskLimit').value;
-    if (lang) q.set('language', lang);
-    if (cat) q.set('category', cat);
-    if (limit) q.set('limit', limit);
-    q.set('rubric', '1');
-    const data = await api(`/api/intelligence/datasets/${encodeURIComponent(currentDS())}/tasks?` + q.toString());
-    if (!data.tasks || data.tasks.length === 0) {
-      el.innerHTML = '<div class="text-muted">没有匹配的任务</div>';
-      return;
-    }
-    el.innerHTML = `<div class="text-sm text-muted mb-8">${data.total} tasks found</div>` +
-      data.tasks.map(t => `<div class="task-card">
-        <div class="task-meta">
-          <span class="tag tag-lang">${t.language}</span>
-          <span class="tag tag-cat">${t.category}</span>
-          <span class="text-sm text-muted">${t.task_id.substring(0,12)}...</span>
-        </div>
-        <div class="task-prompt">${esc(t.prompt.substring(0, 300))}</div>
-      </div>`).join('');
-  } catch (e) {
-    el.innerHTML = `<div style="color:var(--red)">${esc(JSON.stringify(e))}</div>`;
-  }
+  const text = desc.length ? desc.join(', ') : '全量运行';
+  el.textContent = text;
+  el2.textContent = text;
 }
 
 function buildRunPayload() {
@@ -432,19 +521,17 @@ function buildRunPayload() {
     concurrency: parseInt(document.getElementById('runConcurrency').value) || 5,
     max_tokens: parseInt(document.getElementById('runMaxTokens').value) || 4096,
   };
-  if (scope === 'all') {
-    // no filters = run all
-    return p;
-  }
-  const lang = document.getElementById('runLang').value.trim();
-  const cat = document.getElementById('runCategory').value.trim();
-  const limit = parseInt(document.getElementById('runLimit').value) || 0;
-  if (lang) p.language = lang;
-  if (cat) p.category = cat;
-  if (limit > 0) p.limit = limit;
-  if (scope === 'ids') {
-    const ids = document.getElementById('runTaskIDs').value.split(',').map(s => s.trim()).filter(Boolean);
-    if (ids.length > 0) p.task_ids = ids;
+  // Override model if set in run config
+  const runModel = document.getElementById('runModel').value.trim();
+  if (runModel) p.model = runModel;
+
+  if (scope !== 'all') {
+    const lang = document.getElementById('runLang').value.trim();
+    const cat = document.getElementById('runCategory').value.trim();
+    const limit = parseInt(document.getElementById('runLimit').value) || 0;
+    if (lang) p.language = lang;
+    if (cat) p.category = cat;
+    if (limit > 0) p.limit = limit;
   }
   return p;
 }
@@ -465,20 +552,23 @@ async function runIntelligenceStream() {
   intelligenceTimer = setInterval(updateElapsed, 1000);
   updateElapsed();
 
-  // Reset progress
   document.getElementById('intelligenceProgressBar').style.width = '0%';
-  document.getElementById('intelligenceProgressText').textContent = '0/0';
-  document.getElementById('intelligenceProgressErrors').textContent = '';
-  document.getElementById('intelligenceProgressPct').textContent = '0%';
+  document.getElementById('progressCompleted').textContent = '0';
+  document.getElementById('progressTotal').textContent = '/0';
+  document.getElementById('progressDone').textContent = '0';
+  document.getElementById('progressErrors').textContent = '0';
+  document.getElementById('progressAvg').textContent = '-';
+  document.getElementById('progressConcurrency').textContent =
+    document.getElementById('runConcurrency').value;
   document.getElementById('intelligenceResultList').innerHTML = '';
+  document.getElementById('progressShimmer').style.display = '';
 
   const payload = buildRunPayload();
   intelligenceAbort = new AbortController();
 
   try {
     const resp = await fetch(`/api/intelligence/datasets/${encodeURIComponent(currentDS())}/stream`, {
-      method: 'POST',
-      headers: headers(),
+      method: 'POST', headers: headers(),
       body: JSON.stringify(payload),
       signal: intelligenceAbort.signal,
     });
@@ -496,32 +586,27 @@ async function runIntelligenceStream() {
       const {done, value} = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, {stream: true});
-
-      // Parse SSE lines
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep incomplete line
+      buffer = lines.pop();
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
-        try {
-          const ev = JSON.parse(line.substring(6));
-          handleIntelligenceEvent(ev);
-        } catch {}
+        try { handleIntelligenceEvent(JSON.parse(line.substring(6))); } catch {}
       }
     }
-    // Process remaining buffer
     if (buffer.startsWith('data: ')) {
       try { handleIntelligenceEvent(JSON.parse(buffer.substring(6))); } catch {}
     }
   } catch (e) {
     if (e.name !== 'AbortError') {
       document.getElementById('intelligenceResultList').innerHTML +=
-        `<div style="color:var(--red);padding:12px">Error: ${esc(e.message || JSON.stringify(e))}</div>`;
+        `<div style="color:var(--bad);padding:12px">Error: ${esc(e.message || JSON.stringify(e))}</div>`;
     }
   } finally {
     clearInterval(intelligenceTimer);
     btn.disabled = false;
     stopBtn.classList.add('hidden');
     intelligenceAbort = null;
+    document.getElementById('progressShimmer').style.display = 'none';
   }
 }
 
@@ -531,20 +616,29 @@ function stopIntelligence() {
 
 function updateElapsed() {
   if (!intelligenceStartTime) return;
-  const sec = ((Date.now() - intelligenceStartTime) / 1000).toFixed(0);
+  const sec = Math.floor((Date.now() - intelligenceStartTime) / 1000);
   const min = Math.floor(sec / 60);
   const s = sec % 60;
-  document.getElementById('intelligenceElapsed').textContent = min > 0 ? `${min}m ${s}s` : `${s}s`;
+  document.getElementById('intelligenceElapsed').textContent =
+    min > 0 ? `${min}:${String(s).padStart(2,'0')}` : `${s}s`;
 }
 
 function handleIntelligenceEvent(ev) {
   if (ev.type === 'progress') {
     const pct = ev.total > 0 ? Math.round(ev.completed / ev.total * 100) : 0;
     document.getElementById('intelligenceProgressBar').style.width = pct + '%';
-    document.getElementById('intelligenceProgressText').textContent = `${ev.completed}/${ev.total}`;
-    document.getElementById('intelligenceProgressPct').textContent = pct + '%';
+    document.getElementById('progressCompleted').textContent = ev.completed;
+    document.getElementById('progressTotal').textContent = '/' + ev.total;
+    document.getElementById('progressDone').textContent = ev.completed;
     if (ev.errors > 0) {
-      document.getElementById('intelligenceProgressErrors').innerHTML = `<span class="err">${ev.errors} errors</span>`;
+      document.getElementById('progressErrors').textContent = ev.errors;
+      document.getElementById('progressErrors').classList.add('bad');
+    }
+
+    // Avg time
+    if (intelligenceStreamResults.length > 0) {
+      const avg = intelligenceStreamResults.reduce((s, r) => s + (r.elapsed_ms || 0), 0) / intelligenceStreamResults.length;
+      document.getElementById('progressAvg').textContent = (avg / 1000).toFixed(1) + ' s';
     }
 
     if (ev.result) {
@@ -558,7 +652,6 @@ function handleIntelligenceEvent(ev) {
       renderIntelligenceSummary(ev.report);
     }
     document.getElementById('intelligenceProgressBar').style.width = '100%';
-    document.getElementById('intelligenceProgressPct').textContent = '100%';
   }
 }
 
@@ -566,41 +659,45 @@ function appendResultCard(r) {
   const el = document.getElementById('intelligenceResultList');
   const hasErr = !!r.error;
   const card = document.createElement('div');
-  card.className = 'task-card';
+  card.className = 'task';
   card.innerHTML = `
-    <div class="task-meta">
+    <div class="head">
       <span class="tag tag-lang">${esc(r.task.language)}</span>
       <span class="tag tag-cat">${esc(r.task.category)}</span>
-      <span class="text-sm text-muted">${r.task.task_id.substring(0,12)}...</span>
-      <span class="text-sm text-muted">${r.elapsed_ms}ms</span>
-      ${hasErr ? '<span class="tag" style="background:var(--red-bg);color:var(--red)">Error</span>' : '<span class="tag" style="background:var(--green-bg);color:var(--green)">OK</span>'}
+      ${hasErr
+        ? '<span class="tag tag-err">Error</span>'
+        : '<span class="tag tag-ok">OK</span>'}
+      <span class="id">${esc((r.task.task_id || '').substring(0, 12))}...</span>
+      <span style="margin-left:auto" class="muted mono" style="font-size:11px">${r.elapsed_ms} ms</span>
     </div>
-    <div class="task-prompt">${esc((r.task.prompt || '').substring(0, 200))}...</div>
-    ${r.answer ? `<details><summary class="text-sm text-muted" style="cursor:pointer;margin-top:6px">查看回答 (${r.answer.length} chars)</summary><div class="task-answer">${esc(r.answer)}</div></details>` : ''}
-    ${r.error ? `<div class="task-answer" style="color:var(--red)">${esc(r.error)}</div>` : ''}
+    <div class="prompt">${esc((r.task.prompt || '').substring(0, 200))}</div>
+    <div class="footer">
+      ${r.answer ? '<span class="muted">回答 ' + r.answer.length + ' 字符</span>' : ''}
+      ${r.error ? '<span style="color:var(--bad)">' + esc(r.error) + '</span>' : ''}
+    </div>
+    ${r.answer ? '<details><summary class="muted" style="cursor:pointer;font-size:12px;margin-top:6px">查看回答</summary><div class="answer">' + esc(r.answer) + '</div></details>' : ''}
   `;
   el.appendChild(card);
-  // Auto-scroll to bottom
   el.scrollTop = el.scrollHeight;
-  // Show result card
   document.getElementById('intelligenceResultCard').classList.remove('hidden');
 }
 
 function renderIntelligenceSummary(report) {
   document.getElementById('intelligenceResultMeta').textContent =
-    `${report.task_total} tasks | ${report.model} | ${report.elapsed_ms}ms`;
+    `${report.task_total} tasks | ${report.model} | ${(report.elapsed_ms / 1000).toFixed(1)}s`;
 
-  const avgMs = report.results.length > 0
+  const avgMs = report.results && report.results.length > 0
     ? Math.round(report.results.reduce((s, r) => s + r.elapsed_ms, 0) / report.results.length)
     : 0;
 
   document.getElementById('intelligenceResultStats').innerHTML = `
-    <div class="stat"><div class="stat-val" style="color:var(--green)">${report.task_completed || report.task_total}</div><div class="stat-label">Completed</div></div>
-    <div class="stat"><div class="stat-val" style="color:${report.task_errors > 0 ? 'var(--red)' : 'var(--text)'}">${report.task_errors || 0}</div><div class="stat-label">Errors</div></div>
-    <div class="stat"><div class="stat-val">${(report.elapsed_ms / 1000).toFixed(1)}s</div><div class="stat-label">Total Time</div></div>
-    <div class="stat"><div class="stat-val">${(avgMs / 1000).toFixed(1)}s</div><div class="stat-label">Avg / Task</div></div>
+    <div><div class="muted" style="font-size:11px">完成</div><div class="serif tnum" style="font-size:22px">${report.task_completed || report.task_total}</div></div>
+    <div><div class="muted" style="font-size:11px">错误</div><div class="serif tnum" style="font-size:22px;${report.task_errors > 0 ? 'color:var(--bad)' : ''}">${report.task_errors || 0}</div></div>
+    <div><div class="muted" style="font-size:11px">总耗时</div><div class="serif tnum" style="font-size:22px">${(report.elapsed_ms / 1000).toFixed(1)}s</div></div>
+    <div><div class="muted" style="font-size:11px">Avg/Task</div><div class="serif tnum" style="font-size:22px">${(avgMs / 1000).toFixed(1)}s</div></div>
   `;
-  document.getElementById('intelligenceResultCard').classList.remove('hidden');
+  document.getElementById('distLegend').textContent =
+    `${report.task_completed || report.task_total} 已完成`;
 }
 
 function exportIntelligenceResult() {
@@ -615,6 +712,12 @@ function exportIntelligenceResult() {
 }
 
 /* ─── Init ─── */
+loadSettings();
 loadIntelligenceList();
 toggleRunScope();
 updateIntelligencePreview();
+
+// Auto-save settings on input change
+['targetBase', 'targetKey', 'model', 'adminToken'].forEach(id => {
+  document.getElementById(id).addEventListener('change', saveSettings);
+});

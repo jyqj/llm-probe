@@ -3,343 +3,464 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Claude API Channel/Intelligence Audit</title>
+<title>LLM Probe · 渠道测试 + Benchmark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div class="app">
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="sidebar-logo">LLM <span>Audit</span></div>
-    <nav>
-      <button class="active" onclick="showView('overview')" data-view="overview">
-        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75A.75.75 0 0 1 .75 1h14.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 1.75M3 5a2 2 0 1 1 0 4 2 2 0 0 1 0-4m10 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4M0 14.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1-.75-.75"/></svg>
-        概览 Dashboard
-      </button>
-      <button onclick="showView('channel')" data-view="channel">
-        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0M1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0m4.879-2.773L8 6.848l1.621-1.621a.75.75 0 1 1 1.06 1.06L9.061 8l1.621 1.621a.75.75 0 0 1-1.06 1.06L8 9.061l-1.621 1.621a.75.75 0 0 1-1.06-1.06L6.939 8 5.318 6.379a.75.75 0 0 1 1.06-1.06z"/></svg>
-        渠道测试
-      </button>
-      <button onclick="showView('intelligence')" data-view="intelligence">
-        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1M1.5 2.75v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25M3 5.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5m0 2.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9A.5.5 0 0 1 3 8m0 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5"/></svg>
-        智商测试
-      </button>
-      <button onclick="showView('raw')" data-view="raw">
-        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.72 3.22a.75.75 0 0 1 1.06 1.06L2.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06zm6.56 0a.75.75 0 1 0-1.06 1.06L13.94 8l-3.72 3.72a.75.75 0 1 0 1.06 1.06l4.25-4.25a.75.75 0 0 0 0-1.06z"/></svg>
+
+<!-- ═══════════════════ TOPBAR ═══════════════════ -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark"></div>
+    Probe <small>· Channel & Benchmark Suite</small>
+  </div>
+
+  <div class="appswitch" role="tablist">
+    <button class="active" data-app="channel" onclick="switchApp('channel')">
+      <span class="dot"></span> 渠道测试 <span class="muted" style="font-size:11px;margin-left:2px">Channel</span>
+    </button>
+    <button data-app="bench" onclick="switchApp('bench')">
+      <span class="dot"></span> 智商 Benchmark
+    </button>
+  </div>
+
+  <div class="topbar-right">
+    <div class="conn" id="connStatus">
+      <span class="pulse"></span>
+      <span id="connLabel">未配置</span>
+    </div>
+    <button class="iconbtn" title="设置" onclick="switchApp('settings')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </div>
+</header>
+
+
+<!-- ═══════════════════ APP: CHANNEL ═══════════════════ -->
+<section class="app-pane app-body" data-app-pane="channel">
+  <aside class="side">
+    <div class="side-section">
+      <div class="side-label">Channel</div>
+      <a class="side-link channel-active" onclick="showChannelSub('overview')">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+        本次检测
+      </a>
+      <a class="side-link" onclick="showChannelSub('checks')">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+        检查项详情
+      </a>
+      <a class="side-link" onclick="showChannelSub('raw')">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>
         原始数据
-      </button>
-    </nav>
-    <div class="sidebar-footer">LLM Audit v2.0<br>渠道测试 + 智商测试</div>
+      </a>
+    </div>
+    <div class="side-foot">
+      <div class="avatar">P</div>
+      <div>
+        <div style="color:var(--ink-2);font-weight:500">llm-probe</div>
+        <div>v2.0 · 渠道测试</div>
+      </div>
+    </div>
   </aside>
 
-  <!-- Main Content -->
-  <div class="main">
-    <!-- Config Bar -->
-    <div class="config-bar">
-      <div class="field">
-        <label>Target Base URL</label>
-        <input id="targetBase" placeholder="https://api.example.com">
+  <main class="main">
+    <div class="page-head">
+      <div class="eyebrow">CHANNEL · 渠道测试</div>
+      <h1 class="h1">这条 API 渠道<em>真的是</em> Claude 吗?</h1>
+      <p class="page-sub">通过指纹、结构、签名、行为、多模态五个维度的探测,核验你接入的渠道是否真正连接到 Anthropic 官方。</p>
+    </div>
+
+    <!-- Run controls -->
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+      <div class="live" id="channelLive">
+        <span class="muted">target</span>
+        <span class="target" id="channelLiveTarget">未配置</span>
+        <span class="sep">·</span>
+        <span class="muted">model</span>
+        <span class="target" id="channelLiveModel">-</span>
       </div>
-      <div class="field">
-        <label>API Key</label>
-        <input id="targetKey" type="password" placeholder="sk-...">
-      </div>
-      <div class="field" style="max-width:180px">
-        <label>Model</label>
-        <input id="model" value="claude-opus-4-6">
-      </div>
-      <div class="field" style="max-width:120px">
-        <label>Admin Token</label>
-        <input id="adminToken" type="password" placeholder="optional">
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="seg">
+          <button class="active" onclick="setChannelMode(true,this)">Quick</button>
+          <button onclick="setChannelMode(false,this)">Full</button>
+        </div>
+        <button class="btn btn-channel" onclick="runChannel()" id="btnChannel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+          运行渠道测试
+        </button>
       </div>
     </div>
 
-    <!-- ═══ Overview ═══ -->
-    <div id="view-overview" class="view active">
-      <div class="main-header">
-        <h1>综合审计</h1>
-        <div style="display:flex;gap:8px">
-          <select id="auditMode" style="width:auto;padding:8px 12px">
-            <option value="quick">Quick (快速检测)</option>
-            <option value="full">Full (完整检测)</option>
-          </select>
-          <select id="auditIntelligenceLimit" style="width:auto;padding:8px 12px">
-            <option value="0">全量智商测试 (124题)</option>
-            <option value="3">3 题采样</option>
-            <option value="10">10 题采样</option>
-            <option value="30">30 题采样</option>
-          </select>
-          <button class="btn-primary" onclick="runAudit()" id="btnAudit">一键审计</button>
+    <!-- Loading -->
+    <div id="channelLoading" class="hidden">
+      <div class="loading"><div class="spinner"></div> 正在运行渠道测试...</div>
+    </div>
+
+    <!-- Placeholder -->
+    <div id="channelPlaceholder">
+      <div class="empty">
+        <div class="ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
         </div>
-      </div>
-
-      <div id="auditPlaceholder" class="card text-center" style="padding:60px">
-        <div style="font-size:48px;margin-bottom:12px;opacity:.3">&#9881;</div>
-        <div class="text-muted">配置 Target 后点击「一键审计」开始<br>将同时运行渠道测试 + 智商测试（可配置数量）</div>
-      </div>
-
-      <div id="auditLoading" class="card hidden">
-        <div class="loading-overlay"><div class="spinner"></div> 正在运行综合审计，请稍候...</div>
-      </div>
-
-      <div id="auditResult" class="hidden">
-        <!-- Score Overview -->
-        <div class="grid-2 mb-16">
-          <div class="card text-center">
-            <div class="score-ring">
-              <svg width="140" height="140" viewBox="0 0 140 140">
-                <circle class="track" cx="70" cy="70" r="58"/>
-                <circle class="fill" id="scoreArc" cx="70" cy="70" r="58" stroke-dasharray="364.4" stroke-dashoffset="364.4"/>
-              </svg>
-              <div class="label">
-                <div class="grade" id="scoreGrade">-</div>
-                <div class="pts" id="scorePts">- pts</div>
-              </div>
-            </div>
-            <div id="scoreVerdict" class="verdict-badge verdict-blue" style="margin-bottom:8px">-</div>
-            <div class="text-sm text-muted" id="scoreSummary"></div>
-          </div>
-          <div class="card">
-            <h3 class="mb-8">类别得分</h3>
-            <div class="cat-list" id="catBars"></div>
-          </div>
-        </div>
-
-        <!-- Quick Stats -->
-        <div class="grid-4 mb-16" id="quickStats"></div>
-
-        <!-- 智商测试 Summary -->
-        <div class="card" id="intelligenceSummaryCard">
-          <div class="card-header">
-            <h3>智商测试快速摘要</h3>
-            <span class="text-sm text-muted" id="intelligenceSummaryMeta"></span>
-          </div>
-          <div id="intelligenceSummaryBody"></div>
-        </div>
+        <h4>配置 Target 后开始</h4>
+        <p>先在「设置」页面填写 Target URL 和 API Key,然后点击「运行渠道测试」。</p>
       </div>
     </div>
 
-    <!-- ═══ Channel Test ═══ -->
-    <div id="view-channel" class="view">
-      <div class="main-header">
-        <h1>渠道测试</h1>
-        <div style="display:flex;gap:8px">
-          <select id="channelMode">
-            <option value="true">Quick</option>
-            <option value="false">Full</option>
-          </select>
-          <button class="btn-primary" onclick="runChannel()" id="btnChannel">运行渠道测试</button>
-        </div>
-      </div>
-
-      <div id="channelLoading" class="card hidden">
-        <div class="loading-overlay"><div class="spinner"></div> 正在运行渠道测试...</div>
-      </div>
-
-      <div id="channelResult" class="hidden">
-        <div class="grid-2 mb-16">
-          <div class="card text-center">
-            <div class="score-ring">
-              <svg width="140" height="140" viewBox="0 0 140 140">
-                <circle class="track" cx="70" cy="70" r="58"/>
-                <circle class="fill" id="channelScoreArc" cx="70" cy="70" r="58" stroke-dasharray="364.4" stroke-dashoffset="364.4"/>
-              </svg>
-              <div class="label">
-                <div class="grade" id="channelGrade">-</div>
-                <div class="pts" id="channelPts">- pts</div>
-              </div>
+    <!-- Result -->
+    <div id="channelResult" class="hidden">
+      <!-- Sub overview -->
+      <div id="channelSubOverview">
+        <!-- Score Hero -->
+        <div class="score-hero">
+          <div class="ring-wrap">
+            <svg class="ring-svg" width="220" height="220" viewBox="0 0 220 220">
+              <circle class="ring-track" cx="110" cy="110" r="96"/>
+              <circle class="ring-fill" id="channelScoreArc" cx="110" cy="110" r="96"
+                      stroke-dasharray="603.2" stroke-dashoffset="603.2"/>
+            </svg>
+            <div class="ring-label">
+              <div class="ring-grade" id="channelGrade">-</div>
+              <div class="ring-pts"><span class="num" id="channelPts">-</span> / 100 pts</div>
             </div>
-            <div id="channelVerdict" class="verdict-badge verdict-blue">-</div>
           </div>
-          <div class="card">
-            <h3 class="mb-8">类别得分</h3>
-            <div class="cat-list" id="channelCatBars"></div>
-            <div class="text-sm text-muted mt-12" id="channelMeta"></div>
+          <div class="score-info">
+            <div id="channelVerdict" class="pill pill-info" style="margin-bottom:10px"><span class="dot"></span><span id="channelVerdictText">-</span></div>
+            <h2 id="channelSummaryTitle">等待检测结果...</h2>
+            <p id="channelSummaryDesc"></p>
+            <div class="score-meta" id="channelScoreMeta"></div>
           </div>
         </div>
-        <div class="card">
-          <div class="card-header">
-            <h3>渠道检查项详情</h3>
-            <span class="text-sm text-muted" id="channelCheckCount"></span>
+
+        <!-- Stats -->
+        <div class="stats-row" id="channelStats">
+          <div class="stat"><div class="k">总检查项</div><div class="v" id="chkTotal">-</div></div>
+          <div class="stat"><div class="k">通过</div><div class="v" id="chkPassed" style="color:var(--good)">-</div></div>
+          <div class="stat"><div class="k">失败</div><div class="v" id="chkFailed" style="color:var(--bad)">-</div></div>
+          <div class="stat"><div class="k">耗时</div><div class="v" id="chkElapsed">-</div></div>
+        </div>
+
+        <!-- Category bars + Fix panel -->
+        <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-bottom:20px">
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <h3 style="font-size:13px;font-weight:600">类别得分</h3>
+              <span class="muted" style="font-size:12px">五维探测 · 按权重展示</span>
+            </div>
+            <div id="channelCatBars"></div>
+          </div>
+          <div class="fix-panel" id="channelFixPanel">
+            <h4>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              建议修复 <span class="muted" style="font-weight:400">· 优先级排序</span>
+            </h4>
+            <div class="fix-list" id="channelFixList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub checks -->
+      <div id="channelSubChecks" class="hidden">
+        <div class="card flush">
+          <div class="card-head">
+            <h3>检查项详情</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="seg">
+                <button class="active" onclick="filterChecks('all',this)">全部</button>
+                <button onclick="filterChecks('fail',this)">仅失败</button>
+                <button onclick="filterChecks('pass',this)">仅通过</button>
+              </div>
+              <button class="btn btn-quiet btn-sm" onclick="exportChannel()">导出 JSON</button>
+            </div>
           </div>
           <div id="channelChecks"></div>
         </div>
       </div>
 
-      <div id="channelPlaceholder" class="card text-center" style="padding:40px">
-        <div class="text-muted">点击「运行渠道测试」开始渠道测试</div>
+      <!-- Sub raw -->
+      <div id="channelSubRaw" class="hidden">
+        <pre class="json-out" id="rawChannel">暂无数据</pre>
       </div>
     </div>
+  </main>
+</section>
 
-    <!-- ═══ Intelligence Test ═══ -->
-    <div id="view-intelligence" class="view">
-      <div class="main-header">
-        <h1>智商测试</h1>
-        <div style="display:flex;gap:8px;align-items:center">
-          <select id="intelligenceDatasetSelect" onchange="switchDataset()" style="width:auto;padding:6px 10px;font-size:12px"></select>
-          <button class="btn-secondary btn-sm" onclick="loadIntelligenceList()">刷新</button>
-          <button class="btn-secondary btn-sm" onclick="showUploadDialog()">上传数据集</button>
-        </div>
+
+<!-- ═══════════════════ APP: BENCHMARK ═══════════════════ -->
+<section class="app-pane app-body" data-app-pane="bench" hidden>
+  <aside class="side">
+    <div class="side-section">
+      <div class="side-label">Benchmark</div>
+      <a class="side-link active">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-14 9z" fill="currentColor" stroke="none"/></svg>
+        本次运行
+      </a>
+      <a class="side-link" onclick="showUploadDialog()">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        导入数据集
+      </a>
+    </div>
+
+    <div class="side-section" id="sideDatasets">
+      <div class="side-label">Datasets</div>
+    </div>
+
+    <div class="side-foot">
+      <div class="avatar">P</div>
+      <div>
+        <div style="color:var(--ink-2);font-weight:500">llm-probe</div>
+        <div id="sideDatasetCount">-</div>
       </div>
+    </div>
+  </aside>
 
-      <!-- Fetch / Upload Dialog -->
-      <div class="card mb-16 hidden" id="uploadCard">
-        <div class="card-header">
-          <h3>添加数据集</h3>
-          <button class="btn-sm btn-secondary" onclick="document.getElementById('uploadCard').classList.add('hidden')">关闭</button>
-        </div>
+  <main class="main">
+    <div class="page-head">
+      <div class="eyebrow">BENCHMARK · 智商测试</div>
+      <h1 class="h1">这条渠道<em>多聪明</em>?</h1>
+      <p class="page-sub">在多个公开 benchmark 上对该渠道运行评测,聚合得分、分语言/类别、查看每一题的 prompt 与回答。</p>
+    </div>
 
-        <div class="tabs mb-8">
-          <button class="tab-btn active" onclick="showAddTab('tabFetch',this)">从 HuggingFace 拉取</button>
-          <button class="tab-btn" onclick="showAddTab('tabUpload',this)">上传自定义文件</button>
-        </div>
-
-        <!-- Fetch from HF -->
-        <div id="tabFetch">
-          <div class="text-sm text-muted mb-8">选择已适配的公开智商测试集，从 HuggingFace 在线拉取。Gated 数据集需先在 HF 上同意协议。</div>
-          <div class="row mb-8">
-            <div class="field">
-              <label class="text-sm text-muted">选择智商测试集</label>
-              <select id="fetchName">
-                <option value="SWE-bench-Verified">SWE-bench Verified (500题, 代码工程)</option>
-                <option value="GPQA-Diamond">GPQA Diamond (448题, 科学推理, Gated)</option>
-                <option value="HLE">HLE (2500题, 极限知识, Gated)</option>
-                <option value="LiveCodeBench">LiveCodeBench (880题, 算法代码)</option>
-              </select>
-            </div>
-            <div class="field" style="max-width:100px">
-              <label class="text-sm text-muted">Limit</label>
-              <input id="fetchLimit" type="number" value="0" placeholder="0=全部">
-            </div>
-          </div>
-          <button class="btn-primary" onclick="fetchFromHF()">拉取</button>
-          <span class="text-sm text-muted" id="fetchStatus"></span>
-        </div>
-
-        <!-- Upload file -->
-        <div id="tabUpload" class="hidden">
-          <div class="text-sm text-muted mb-8">
-            支持 CSV (必须含 task_id, prompt 列) 或 JSON ({tasks:[...]}) 格式。
-          </div>
-          <div class="row mb-8">
-            <div class="field"><label class="text-sm text-muted">数据集名称</label><input id="uploadName" placeholder="my-custom-bench"></div>
-            <div class="field"><label class="text-sm text-muted">文件</label><input id="uploadFile" type="file" accept=".csv,.json"></div>
-          </div>
-          <button class="btn-primary" onclick="uploadDataset()">上传</button>
-          <span class="text-sm text-muted" id="uploadStatus"></span>
-        </div>
+    <!-- Upload dialog (hidden by default) -->
+    <div id="uploadCard" class="upload-dialog hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="font-size:14px;font-weight:600">添加数据集</h3>
+        <button class="btn btn-quiet btn-sm" onclick="document.getElementById('uploadCard').classList.add('hidden')">关闭</button>
       </div>
-
-      <!-- Dataset Info -->
-      <div class="card mb-16">
-        <div class="card-header">
-          <h3>数据集概览</h3>
-          <span class="text-sm text-muted" id="intelligenceDatasetLabel">-</span>
-        </div>
-        <div id="intelligenceInfo" class="text-muted">加载中...</div>
+      <div class="upload-tabs">
+        <button class="upload-tab active" onclick="showAddTab('tabFetch',this)">从 HuggingFace 拉取</button>
+        <button class="upload-tab" onclick="showAddTab('tabUpload',this)">上传自定义文件</button>
       </div>
-
-      <!-- Run Config -->
-      <div class="card mb-16">
-        <h3 class="mb-8">运行配置</h3>
-        <div class="row mb-8">
-          <div class="field">
-            <label class="text-sm text-muted">运行范围</label>
-            <select id="runScope" onchange="toggleRunScope()">
-              <option value="all">全量运行</option>
-              <option value="lang">按语言筛选</option>
-              <option value="cat">按类别筛选</option>
-              <option value="ids">指定 Task IDs</option>
-              <option value="custom" selected>自定义筛选</option>
+      <div id="tabFetch">
+        <p class="muted" style="font-size:12px;margin-bottom:12px">选择已适配的公开智商测试集,从 HuggingFace 在线拉取。</p>
+        <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
+          <div style="flex:1;min-width:200px">
+            <div class="muted" style="font-size:11px;margin-bottom:4px">选择智商测试集</div>
+            <select id="fetchName" class="input" style="padding:8px 12px">
+              <option value="SWE-bench-Verified">SWE-bench Verified (500题)</option>
+              <option value="GPQA-Diamond">GPQA Diamond (448题, Gated)</option>
+              <option value="HLE">HLE (2500题, Gated)</option>
+              <option value="LiveCodeBench">LiveCodeBench (880题)</option>
             </select>
           </div>
-          <div class="field" style="max-width:100px">
-            <label class="text-sm text-muted">并发数</label>
-            <input id="runConcurrency" type="number" value="5" min="1" max="20">
+          <div style="width:80px">
+            <div class="muted" style="font-size:11px;margin-bottom:4px">Limit</div>
+            <input id="fetchLimit" type="number" value="0" class="input" placeholder="0=全部">
           </div>
-          <div class="field" style="max-width:100px">
-            <label class="text-sm text-muted">Max Tokens</label>
-            <input id="runMaxTokens" type="number" value="4096">
+          <button class="btn btn-primary" onclick="fetchFromHF()">拉取</button>
+        </div>
+        <div class="muted" style="font-size:12px" id="fetchStatus"></div>
+      </div>
+      <div id="tabUpload" class="hidden">
+        <p class="muted" style="font-size:12px;margin-bottom:12px">支持 CSV (含 task_id, prompt 列) 或 JSON 格式。</p>
+        <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
+          <div style="flex:1;min-width:160px">
+            <div class="muted" style="font-size:11px;margin-bottom:4px">数据集名称</div>
+            <input id="uploadName" class="input" placeholder="my-custom-bench">
+          </div>
+          <div style="flex:1;min-width:160px">
+            <div class="muted" style="font-size:11px;margin-bottom:4px">文件</div>
+            <input id="uploadFile" type="file" accept=".csv,.json" class="input">
+          </div>
+          <button class="btn btn-primary" onclick="uploadDataset()">上传</button>
+        </div>
+        <div class="muted" style="font-size:12px" id="uploadStatus"></div>
+      </div>
+    </div>
+
+    <!-- Dataset switch -->
+    <div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="eyebrow" style="margin:0">当前数据集</div>
+        <button class="btn btn-quiet btn-sm" onclick="showUploadDialog()">+ 添加数据集</button>
+      </div>
+      <div class="ds-switch" id="datasetSwitch"></div>
+    </div>
+
+    <!-- Dataset info -->
+    <div class="card" style="margin-bottom:20px" id="datasetInfoCard">
+      <div id="datasetInfo">
+        <div class="muted">加载中...</div>
+      </div>
+    </div>
+
+    <!-- Run config -->
+    <div class="card" style="margin-bottom:20px;padding:0;overflow:hidden">
+      <div class="card-head">
+        <h3>运行配置</h3>
+        <span class="meta" id="runPreview">-</span>
+      </div>
+      <div class="runcfg">
+        <div class="runcfg-cell">
+          <div class="k">运行范围</div>
+          <select id="runScope" onchange="toggleRunScope()">
+            <option value="all">全量运行</option>
+            <option value="custom" selected>自定义筛选</option>
+          </select>
+        </div>
+        <div class="runcfg-cell">
+          <div class="k">并发</div>
+          <input id="runConcurrency" type="number" value="5" min="1" max="20">
+        </div>
+        <div class="runcfg-cell">
+          <div class="k">Max tokens</div>
+          <input id="runMaxTokens" type="number" value="4096">
+        </div>
+        <div class="runcfg-cell">
+          <div class="k">模型</div>
+          <input id="runModel" value="" class="mono" placeholder="使用设置页模型">
+        </div>
+      </div>
+      <div id="runFilters" style="padding:14px 18px;border-top:1px solid var(--line-soft);display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+        <div style="flex:1;min-width:120px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">Language</div>
+          <input id="runLang" class="input" placeholder="go / python (留空=全部)">
+        </div>
+        <div style="flex:1;min-width:120px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">Category</div>
+          <input id="runCategory" class="input" placeholder="Security (留空=全部)">
+        </div>
+        <div style="width:80px">
+          <div class="muted" style="font-size:11px;margin-bottom:4px">Limit</div>
+          <input id="runLimit" type="number" value="0" class="input" placeholder="0=全部">
+        </div>
+      </div>
+      <div style="padding:14px 18px;border-top:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center;background:var(--bg-2)">
+        <div class="muted" style="font-size:12px" id="intelligencePreview"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-danger btn-sm hidden" onclick="stopIntelligence()" id="btnIntelligenceStop">停止</button>
+          <button class="btn btn-primary" onclick="runIntelligenceStream()" id="btnIntelligence">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+            开始运行
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="bench-hero hidden" id="intelligenceProgressCard">
+      <div class="progress-card">
+        <div class="top">
+          <div>
+            <div class="label">运行中 · streaming</div>
+            <div class="frac"><span id="progressCompleted">0</span><small id="progressTotal">/0</small></div>
+          </div>
+          <div style="text-align:right">
+            <div class="label">已用时</div>
+            <div class="serif tnum" style="font-size:24px;letter-spacing:-0.01em" id="intelligenceElapsed">0s</div>
           </div>
         </div>
-        <div id="runFilters">
-          <div class="row mb-8">
-            <div class="field"><label class="text-sm text-muted">Language</label><input id="runLang" placeholder="go / python / c / ts (留空=全部)"></div>
-            <div class="field"><label class="text-sm text-muted">Category</label><input id="runCategory" placeholder="Security (留空=全部)"></div>
-            <div class="field" style="max-width:100px"><label class="text-sm text-muted">Limit</label><input id="runLimit" type="number" value="0" placeholder="0=全部"></div>
-          </div>
-          <div class="mb-8" id="runIDsWrap" style="display:none">
-            <label class="text-sm text-muted">Task IDs (逗号分隔)</label>
-            <input id="runTaskIDs" placeholder="6905333b74f22949d97ba9e3, ...">
-          </div>
+        <div class="progress-bar">
+          <div class="fill" id="intelligenceProgressBar" style="width:0"></div>
+          <div class="shimmer" id="progressShimmer"></div>
         </div>
+        <div class="progress-stats">
+          <div class="item"><div class="k">已完成</div><div class="v" id="progressDone">0</div></div>
+          <div class="item"><div class="k">错误</div><div class="v" id="progressErrors">0</div></div>
+          <div class="item"><div class="k">avg / task</div><div class="v" id="progressAvg">-</div></div>
+          <div class="item"><div class="k">并发</div><div class="v" id="progressConcurrency">5</div></div>
+        </div>
+      </div>
+
+      <div class="dist-card">
+        <h3>运行统计 <span class="legend" id="distLegend">-</span></h3>
+        <div id="intelligenceResultStats" style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px solid var(--line-soft)">
+        </div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="card flush hidden" id="intelligenceResultCard">
+      <div class="card-head">
+        <h3>单题结果 · 流式</h3>
         <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn-primary" onclick="runIntelligenceStream()" id="btnIntelligence">运行智商测试</button>
-          <button class="btn-danger btn-sm hidden" onclick="stopIntelligence()" id="btnIntelligenceStop">停止</button>
-          <span class="text-sm text-muted" id="intelligencePreview"></span>
+          <span class="muted" style="font-size:12px" id="intelligenceResultMeta"></span>
+          <button class="btn btn-quiet btn-sm" onclick="exportIntelligenceResult()">导出 JSON</button>
         </div>
       </div>
+      <div style="padding:14px 18px;max-height:600px;overflow-y:auto" id="intelligenceResultList"></div>
+    </div>
 
-      <!-- Progress -->
-      <div class="card mb-16 hidden" id="intelligenceProgressCard">
-        <div class="card-header">
-          <h3>运行进度</h3>
-          <span class="text-sm" id="intelligenceElapsed"></span>
+    <!-- Raw data -->
+    <pre class="json-out hidden" id="rawIntelligence" style="margin-top:16px">暂无数据</pre>
+  </main>
+</section>
+
+
+<!-- ═══════════════════ APP: SETTINGS ═══════════════════ -->
+<section class="app-pane app-body" data-app-pane="settings" hidden>
+  <aside class="side">
+    <div class="side-section">
+      <div class="side-label">Settings</div>
+      <a class="side-link active">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/><path d="M3 12h12M3 6h6M3 18h18"/></svg>
+        连接与目标
+      </a>
+    </div>
+    <div class="side-foot">
+      <div class="avatar">P</div>
+      <div>
+        <div style="color:var(--ink-2);font-weight:500">llm-probe</div>
+        <div>本地配置 · 不上传</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main" style="max-width:880px">
+    <div class="page-head">
+      <div class="eyebrow">SETTINGS · 连接与目标</div>
+      <h1 class="h1">设置一次,<em>两个工作区</em>共用</h1>
+      <p class="page-sub">你的目标渠道、API Key 与默认模型都保存在本地浏览器,不会发送至任何第三方。</p>
+    </div>
+
+    <div class="card">
+      <div class="set-row">
+        <div class="k">
+          <h4>Target Base URL</h4>
+          <p>渠道入口,通常是 API 代理或自部署中转的 URL。</p>
         </div>
-        <div class="progress-wrap">
-          <div class="progress-bar-outer"><div class="progress-bar-inner" id="intelligenceProgressBar"></div></div>
-          <div class="progress-stats">
-            <span id="intelligenceProgressText">0/0</span>
-            <span id="intelligenceProgressErrors"></span>
-            <span id="intelligenceProgressPct">0%</span>
-          </div>
+        <div>
+          <input id="targetBase" class="input mono" placeholder="https://api.example.com/v1/messages">
+          <div id="connTestResult" style="margin-top:6px"></div>
         </div>
       </div>
-
-      <!-- Results -->
-      <div class="card mb-16 hidden" id="intelligenceResultCard">
-        <div class="card-header">
-          <h3>运行结果</h3>
-          <div style="display:flex;gap:8px;align-items:center">
-            <span class="text-sm text-muted" id="intelligenceResultMeta"></span>
-            <button class="btn-secondary btn-sm" onclick="exportIntelligenceResult()">导出 JSON</button>
-          </div>
+      <div class="set-row">
+        <div class="k">
+          <h4>API Key</h4>
+          <p>仅用于发起测试请求,不会写入服务器日志。</p>
         </div>
-        <!-- Summary Stats -->
-        <div class="grid-4 mb-16" id="intelligenceResultStats"></div>
-        <!-- Results List -->
-        <div id="intelligenceResultList" style="max-height:600px;overflow-y:auto"></div>
+        <div>
+          <input id="targetKey" class="input mono" type="password" placeholder="sk-...">
+        </div>
       </div>
-
-      <!-- Task Browser -->
-      <div class="card">
-        <h3 class="mb-8">浏览任务</h3>
-        <div class="row mb-8">
-          <div class="field"><label class="text-sm text-muted">Language</label><input id="taskLang" placeholder="go / python / c / ts"></div>
-          <div class="field"><label class="text-sm text-muted">Category</label><input id="taskCategory" placeholder="Architecture & system design"></div>
-          <div class="field" style="max-width:100px"><label class="text-sm text-muted">Limit</label><input id="taskLimit" type="number" value="10"></div>
+      <div class="set-row">
+        <div class="k">
+          <h4>默认 Model</h4>
+          <p>未指定时所有测试都会使用该模型 ID。</p>
         </div>
-        <button class="btn-secondary" onclick="listTasks()">查询任务</button>
-        <div id="taskList" class="mt-16"></div>
+        <div>
+          <input id="model" class="input mono" value="claude-opus-4-6">
+        </div>
+      </div>
+      <div class="set-row">
+        <div class="k">
+          <h4>Admin Token</h4>
+          <p>仅在调用 /api/audit /api/intelligence 等受限接口时需要。</p>
+        </div>
+        <div>
+          <input id="adminToken" class="input mono" type="password" placeholder="optional">
+        </div>
       </div>
     </div>
 
-    <!-- ═══ Raw Data ═══ -->
-    <div id="view-raw" class="view">
-      <div class="main-header">
-        <h1>原始数据</h1>
-      </div>
-      <div class="tabs">
-        <button class="tab-btn active" onclick="showRawTab('rawChannel',this)">渠道测试结果</button>
-        <button class="tab-btn" onclick="showRawTab('rawIntelligence',this)">智商测试结果</button>
-        <button class="tab-btn" onclick="showRawTab('rawAudit',this)">审计结果</button>
-      </div>
-      <pre class="json-out" id="rawChannel">暂无数据</pre>
-      <pre class="json-out hidden" id="rawIntelligence">暂无数据</pre>
-      <pre class="json-out hidden" id="rawAudit">暂无数据</pre>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+      <button class="btn btn-primary" onclick="saveSettings()">保存配置</button>
     </div>
-  </div>
-</div>
+  </main>
+</section>
 
 <script src="/app.js"></script>
 </body>
