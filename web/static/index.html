@@ -94,40 +94,31 @@
     </div>
 
     <!-- Run controls -->
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap">
-      <div style="display:flex;gap:8px;align-items:center">
-        <div class="seg">
-          <button class="active" onclick="setChannelMode(true,this)">Quick</button>
-          <button onclick="setChannelMode(false,this)">Full</button>
-        </div>
-        <button class="btn btn-channel" onclick="runChannel()" id="btnChannel">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-          运行渠道测试
-        </button>
-      </div>
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:20px">
+      <button class="btn btn-channel" onclick="runChannel()" id="btnChannel">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+        运行渠道测试
+      </button>
     </div>
 
     <!-- Loading -->
-    <div id="channelLoading" class="hidden">
-      <div class="loading"><div class="spinner"></div> 正在运行渠道测试...</div>
-    </div>
-
-    <!-- Placeholder -->
-    <div id="channelPlaceholder">
-      <div class="empty">
-        <div class="ico">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
-        </div>
-        <h4>填写 Target 后开始</h4>
-        <p>在上方填写 Target Base URL 和 API Key,然后点击「运行渠道测试」。</p>
+    <!-- ═══ Sub: 本次检测（概览） ═══ -->
+    <div id="channelSubOverview">
+      <div id="channelLoading" class="hidden">
+        <div class="loading"><div class="spinner"></div> 正在运行渠道测试...</div>
       </div>
-    </div>
 
-    <!-- Result -->
-    <div id="channelResult" class="hidden">
-      <!-- Sub overview -->
-      <div id="channelSubOverview">
-        <!-- Score Hero -->
+      <div id="channelPlaceholder">
+        <div class="empty">
+          <div class="ico">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+          </div>
+          <h4>填写 Target 后开始</h4>
+          <p>在上方填写 Target Base URL 和 API Key,然后点击「运行渠道测试」。</p>
+        </div>
+      </div>
+
+      <div id="channelResult" class="hidden">
         <div class="score-hero">
           <div class="ring-wrap">
             <svg class="ring-svg" width="220" height="220" viewBox="0 0 220 220">
@@ -141,22 +132,20 @@
             </div>
           </div>
           <div class="score-info">
-            <div id="channelVerdict" class="pill pill-info" style="margin-bottom:10px"><span class="dot"></span><span id="channelVerdictText">-</span></div>
+            <div id="channelVerdict" class="pill pill-info" style="margin-bottom:10px"><span class="dot"></span><span>-</span></div>
             <h2 id="channelSummaryTitle">等待检测结果...</h2>
             <p id="channelSummaryDesc"></p>
             <div class="score-meta" id="channelScoreMeta"></div>
           </div>
         </div>
 
-        <!-- Stats -->
-        <div class="stats-row" id="channelStats">
+        <div class="stats-row">
           <div class="stat"><div class="k">总检查项</div><div class="v" id="chkTotal">-</div></div>
           <div class="stat"><div class="k">通过</div><div class="v" id="chkPassed" style="color:var(--good)">-</div></div>
           <div class="stat"><div class="k">失败</div><div class="v" id="chkFailed" style="color:var(--bad)">-</div></div>
           <div class="stat"><div class="k">耗时</div><div class="v" id="chkElapsed">-</div></div>
         </div>
 
-        <!-- Category bars + Fix panel -->
         <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-bottom:20px">
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -165,7 +154,7 @@
             </div>
             <div id="channelCatBars"></div>
           </div>
-          <div class="fix-panel" id="channelFixPanel">
+          <div class="fix-panel">
             <h4>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
               建议修复 <span class="muted" style="font-weight:400">· 优先级排序</span>
@@ -174,9 +163,18 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Sub checks -->
-      <div id="channelSubChecks" class="hidden">
+    <!-- ═══ Sub: 检查项详情 ═══ -->
+    <div id="channelSubChecks" class="hidden">
+      <div id="channelChecksEmpty" class="empty">
+        <div class="ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+        </div>
+        <h4>暂无检查数据</h4>
+        <p>先运行一次渠道测试,检查项详情将在此展示。</p>
+      </div>
+      <div id="channelChecksContent" class="hidden">
         <div class="card flush">
           <div class="card-head">
             <h3>检查项详情</h3>
@@ -192,9 +190,21 @@
           <div id="channelChecks"></div>
         </div>
       </div>
+    </div>
 
-      <!-- Sub raw -->
-      <div id="channelSubRaw" class="hidden">
+    <!-- ═══ Sub: 原始数据 ═══ -->
+    <div id="channelSubRaw" class="hidden">
+      <div id="channelRawEmpty" class="empty">
+        <div class="ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>
+        </div>
+        <h4>暂无原始数据</h4>
+        <p>先运行一次渠道测试,原始 JSON 响应将在此展示。</p>
+      </div>
+      <div id="channelRawContent" class="hidden">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+          <button class="btn btn-quiet btn-sm" onclick="exportChannel()">导出 JSON</button>
+        </div>
         <pre class="json-out" id="rawChannel">暂无数据</pre>
       </div>
     </div>

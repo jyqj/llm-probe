@@ -1,7 +1,6 @@
 /* ─── State ─── */
 let lastChannelResult = null;
 let lastIntelligenceResult = null;
-let channelQuickMode = true;
 let currentDataset = '';
 let allDatasets = [];
 let intelligenceAbort = null;
@@ -136,26 +135,19 @@ const checkCatMap = {
 };
 function guessCategory(name) { return checkCatMap[name] || 'other'; }
 
-/* ─── Channel Mode ─── */
-function setChannelMode(quick, btn) {
-  channelQuickMode = quick;
-  btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-}
-
 /* ─── Channel Test ─── */
 async function runChannel() {
   const btn = document.getElementById('btnChannel');
   btn.disabled = true;
+  showChannelSub('overview');
   document.getElementById('channelPlaceholder').classList.add('hidden');
   document.getElementById('channelResult').classList.add('hidden');
   document.getElementById('channelLoading').classList.remove('hidden');
 
   try {
-    const p = {...targetPayload(), quick: channelQuickMode};
+    const p = {...targetPayload(), quick: false};
     const data = await api('/api/channel/run', {method: 'POST', body: JSON.stringify(p)});
     lastChannelResult = data;
-    document.getElementById('rawChannel').textContent = JSON.stringify(data, null, 2);
     renderChannelResult(data);
   } catch (e) {
     alert('检测失败: ' + (typeof e === 'string' ? e : JSON.stringify(e)));
@@ -219,8 +211,15 @@ function renderChannelResult(data) {
   const failures = checks.filter(c => !c.pass);
   renderFixPanel(failures);
 
-  // Check details
+  // Check details (sub checks view)
   renderChecks('channelChecks', checks);
+  document.getElementById('channelChecksEmpty').classList.add('hidden');
+  document.getElementById('channelChecksContent').classList.remove('hidden');
+
+  // Raw data (sub raw view)
+  document.getElementById('rawChannel').textContent = JSON.stringify(data, null, 2);
+  document.getElementById('channelRawEmpty').classList.add('hidden');
+  document.getElementById('channelRawContent').classList.remove('hidden');
 
   document.getElementById('channelResult').classList.remove('hidden');
   showChannelSub('overview');
