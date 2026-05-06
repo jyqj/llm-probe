@@ -1,0 +1,41 @@
+{
+  "headers": {
+    "_status": "HTTP/2 200",
+    "server": "nginx/1.24.0 (Ubuntu)",
+    "date": "Sun, 03 May 2026 12:45:30 GMT",
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    "x-new-api-version": "v0.13.0",
+    "x-oneapi-request-id": "202605031245293559174228268d9d6tbY7GU4r",
+    "x-frame-options": "SAMEORIGIN",
+    "x-content-type-options": "nosniff",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload"
+  },
+  "body": {
+    "content": [
+      {
+        "signature": "EuUBClkIDRABGAIqQBQOQGgRJAgdviHd3qO4raHVmejH1A6N2uhwV4Nq3gVF5IFCdvNP1cXE0aCrpEh9wi5vFYaiuwcZHMqnYnPILZkyDWNsYXVkZS1udXRtZWc4ABIMeRl+Ui+Unp1dNpmtGgxSzLEXaXDuR/Wbva0iMIg6ZMk+duEisUs6QHA4fmAbd/qgo0Nj853USmmi8bSc4aqtOJ2AACWp89vQTuqwvyo6A9c31IHYVftxFb0BlsuaYKoUJ+/K4mEE2gyZz3KIZCNXweD1D86UlmtW7IrSJkPhz6MfU9wa16cXDBgB",
+        "thinking": " The user is asking me to search the web for information.",
+        "type": "thinking"
+      },
+      {
+        "id": "toolu_bdrk_012WzN1JKifotr44NfMQq3tZ",
+        "input": {},
+        "name": "web_search",
+        "type": "tool_use"
+      }
+    ],
+    "id": "msg_1777812330551",
+    "model": "claude-opus-4-7",
+    "role": "assistant",
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "type": "message",
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 782,
+      "output_tokens": 73
+    }
+  }
+}

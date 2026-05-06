@@ -1,4 +1,4 @@
-module bedrock-gateway
+module detector-service
 
 go 1.21.13
 

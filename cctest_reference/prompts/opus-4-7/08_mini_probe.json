@@ -1,0 +1,34 @@
+{
+  "model": "claude-opus-4-7",
+  "max_tokens": 1,
+  "stream": false,
+  "system": [
+    {
+      "type": "text",
+      "text": "x-anthropic-billing-header: cc_version=2.1.107.3fe; cc_entrypoint=cli; cch=a1b2c;"
+    },
+    {
+      "type": "text",
+      "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+      "cache_control": {
+        "type": "ephemeral"
+      }
+    },
+    {
+      "type": "text",
+      "text": "You are an interactive agent that helps users with software engineering tasks.",
+      "cache_control": {
+        "type": "ephemeral"
+      }
+    }
+  ],
+  "metadata": {
+    "user_id": "{\"device_id\":\"d0d5221e09987ff5cfb9eec604775df9\",\"account_uuid\":\"2f0a6100-b957-4f4c-9b75-74feed0e1e89\",\"session_id\":\"de7f14ce-b542-495a-bb93-d8497de5a6f3\"}"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "hi"
+    }
+  ]
+}

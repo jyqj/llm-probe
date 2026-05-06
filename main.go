@@ -8,19 +8,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
-	"bedrock-gateway/internal/admin"
-	"bedrock-gateway/internal/config"
-	"bedrock-gateway/internal/fingerprint"
-	"bedrock-gateway/internal/handler"
-	"bedrock-gateway/internal/keymap"
-	"bedrock-gateway/internal/middleware"
-	"bedrock-gateway/internal/probe"
-	"bedrock-gateway/internal/proxy"
-	"bedrock-gateway/web"
+	"detector-service/internal/benchmark"
+	"detector-service/internal/benchmark/sweatlas"
+	"detector-service/internal/config"
+	"detector-service/internal/detectapi"
+	"detector-service/internal/fingerprint"
+	"detector-service/internal/probe"
+	"detector-service/web"
 )
 
 func main() {
@@ -33,7 +30,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Logger
 	logLevel := slog.LevelInfo
 	switch cfg.Log.Level {
 	case "debug":
@@ -45,83 +41,52 @@ func main() {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
-	// Signature secret
-	if cfg.Disguise.SigSecret != "" {
-		fingerprint.SetSigSecret(cfg.Disguise.SigSecret)
+	if cfg.Probe.SigSecret != "" {
+		fingerprint.SetSigSecret(cfg.Probe.SigSecret)
 	}
 
-	// Request logger for admin dashboard
-	reqLogger := admin.NewRequestLogger(10000)
+	// ── Benchmark Registry ──
+	registry := benchmark.NewRegistry()
 
-	// Key map (optional)
-	var km *keymap.KeyMap
-	if cfg.KeyMap.Enabled {
-		km = keymap.New(cfg.KeyMap.KeysFile)
-		logger.Info("key map loaded", "file", cfg.KeyMap.KeysFile, "count", km.Count())
+	// Register built-in SWE-Atlas-QnA (embedded)
+	sweAtlas, err := sweatlas.Load()
+	if err != nil {
+		logger.Error("failed to load embedded benchmark", "error", err)
+		os.Exit(1)
 	}
+	registry.Register(sweAtlas)
 
-	// Upstream proxy
-	upstreamProxy := proxy.NewUpstreamProxy(cfg.Upstream)
-
-	// Probe store (per-upstream fingerprint config cache)
 	prober := probe.NewProber()
-	probeStore := probe.NewStore(prober, cfg.Disguise, logger, cfg.Probe.AutoProbe)
+	probeStore := probe.NewStore(prober, logger, false, nil)
+	runner := benchmark.NewRunner(nil)
 
-	// Handler
-	messagesHandler := handler.NewMessagesHandler(cfg, upstreamProxy, logger, km, probeStore)
-
-	// Middleware chain
-	auth := middleware.Auth(cfg, km)
-	logging := middleware.Logging(reqLogger)
-
-	// Routes
 	mux := http.NewServeMux()
+	api := detectapi.New(cfg, logger, probeStore, registry, runner)
+	api.RegisterRoutes(mux)
 
-	// Messages API — main endpoint
-	mux.Handle("/v1/messages", logging(auth(messagesHandler)))
-
-	// Admin API
-	adminAPI := admin.NewAdminAPI(cfg, reqLogger, km, probeStore)
-	adminAPI.RegisterRoutes(mux)
-
-	// Health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","mode":"detector"}`))
 	})
 
-	// WebUI (only for exact "/" path)
 	staticFS, err := fs.Sub(web.StaticFS, "static")
 	if err != nil {
 		logger.Error("failed to load static files", "error", err)
 		os.Exit(1)
 	}
 	fileServer := http.FileServer(http.FS(staticFS))
+	mux.Handle("/", fileServer)
 
-	// Passthrough proxy: forward non-matched /v1/* requests to upstream
-	passthroughProxy := proxy.NewPassthroughHandler(cfg.Upstream, logger)
-
-	// Catch-all: serve static files for known assets, passthrough for /v1/* API paths
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if strings.HasPrefix(path, "/v1/") && path != "/v1/messages" {
-			passthroughProxy.ServeHTTP(w, r)
-			return
-		}
-		fileServer.ServeHTTP(w, r)
-	})
-
-	logger.Info("starting bedrock gateway",
+	names := registry.List()
+	logger.Info("starting detector service",
 		"listen", cfg.Server.Listen,
-		"upstream", cfg.Upstream.BaseURL,
-		"disguise", cfg.Disguise.Enabled,
-		"keymap", cfg.KeyMap.Enabled,
-		"auto_probe", cfg.Probe.AutoProbe,
+		"default_target", cfg.Upstream.BaseURL,
+		"benchmarks", names,
+		"benchmark_count", len(names),
 		"webui", "http://localhost"+cfg.Server.Listen,
 	)
 
-	// Graceful shutdown
 	srv := &http.Server{Addr: cfg.Server.Listen, Handler: mux}
 	go func() {
 		sigCh := make(chan os.Signal, 1)

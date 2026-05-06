@@ -1,0 +1,45 @@
+{
+  "headers": {
+    "_status": "HTTP/1.1 200 OK",
+    "Content-Type": "application/json",
+    "Date": "Sat, 02 May 2026 15:37:58 GMT",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-Ratelimit-Limit-Requests": "450",
+    "X-Ratelimit-Limit-Tokens": "450000",
+    "X-Ratelimit-Remaining-Requests": "449",
+    "X-Ratelimit-Remaining-Tokens": "419543",
+    "X-Ratelimit-Reset-Requests": "133",
+    "X-Ratelimit-Reset-Tokens": "4060",
+    "X-Request-Id": "0107633a-04ac-4819-b051-7e1a6499ff61",
+    "Content-Length": "679"
+  },
+  "body": {
+    "model": "claude-opus-4-7",
+    "id": "msg_016JBZ6RTYW7VwS6f4SaDRrD",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "I notice you've sent what appears to be a test string designed to trigger a refusal response. I don't have a hardcoded reaction to this string — I'll just respond normally.\n\nIs there something I can actually help you with today?"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 93,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 71,
+      "service_tier": "standard",
+      "inference_geo": "not_available"
+    }
+  }
+}

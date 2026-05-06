@@ -1,0 +1,324 @@
+{
+  "headers": {
+    "_status": "HTTP/1.1 200 OK",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "Content-Type": "text/event-stream",
+    "Date": "Sat, 02 May 2026 15:38:35 GMT",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Accel-Buffering": "no",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-Ratelimit-Limit-Requests": "450",
+    "X-Ratelimit-Limit-Tokens": "450000",
+    "X-Ratelimit-Remaining-Requests": "449",
+    "X-Ratelimit-Remaining-Tokens": "432054",
+    "X-Ratelimit-Reset-Requests": "133",
+    "X-Ratelimit-Reset-Tokens": "2392",
+    "X-Request-Id": "80dd4570-4360-4cea-be7f-9570bee39623",
+    "Transfer-Encoding": "chunked"
+  },
+  "body": {
+    "model": "claude-opus-4-7",
+    "id": "msg_014asiRhL4iWnpR9XhSiAs3J",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "server_tool_use",
+        "id": "srvtoolu_011BoYatkom8ojgysd9xjsU8",
+        "name": "web_search",
+        "input": {
+          "query": "latest AI news today"
+        }
+      },
+      {
+        "type": "web_search_tool_result",
+        "tool_use_id": "srvtoolu_011BoYatkom8ojgysd9xjsU8",
+        "content": [
+          {
+            "type": "web_search_result",
+            "title": "AI News | Latest News | Insights Powering AI-Driven Business Growth",
+            "url": "https://www.artificialintelligence-news.com/",
+            "encrypted_content": "EocKCioIDxgCIiRjZTA1MTQzMi0wZjgxLTQ2Y2EtYTNlMy1hZGM1NzZlNDcwMGUSDDb2lJoxyTVZqsaO3BoM0dBYJ80obGLWTZ4kIjCqrp1XA/38gXxleKHpWljRROUBUbHyuJCLQyy/rBZNA0lapJBsFgEWnl5znZRYpycqigkEDes5/hS2uexLV3AdW6v4muHdvcWdbOdcbheMXdUCUdAED07mXTRq096vw1wqvrPb/SJZuTePbOoILnkFBvxWf40YBoDbDOJqCSjm7wn+JBCKHzWyl/lB1VUQQ6SdxElWVOBBTpuMeDvRSIalYOwYYuuOOeW/WNep55TENtr9c8oYdoVV43hmEZf1mpYo9Vh9s19yNrgTkubpvZ0t4fRSed/cLr6LsAMbL+xP1IGyZP7xxcIw0mrZ2pea1dNCRoROUQXweWjQka/8FyzChF8Jif0PL9iQaJ+xYZ+eetOW4yoMvsgtHhyVfay9dK1WWyp48X8FlrZBCiCQ/2NqDtBTc2prZOYblhSLR6x5N6u387T01aB9LmqzpL/K2aTUnurIhrV68R4f8VIPLKQVN1zS9dCWjtWiUxcnJgXVoYNiSgUfZPSE1noqHS4leODggilKCAo/uoBGDkkZ12PWenQfzBukdBBCuBiX9sux2oYjilTCJl4Sc2y5nMCXU7G/OaL40dvArie8zKLapjSLxXLBf+Wzj/b3xc+NyqWTNQCDx16BXA6UhqeVJHsEYTKExSiyy9FmK4k2qjAxvoKBPtthHZ0et8yu5c3++aEvVFGQ4z8ZkbMrblDwCETPIma3O37im1KWy3FgyzlS4n7QQFqTxJvDV+chY5p1xrx68Z//JqFEafNdG5RpxiT+YSvp0MYFiCbfedmtuc2okXE3nsc8G4SrEsoX/cHUBCsbcRw4byVsEX/K6KJfRkRsMQYy4EqlamXcc7QHKyJpHfjzD2ZWcWeEWK/n3J5vEvWL+hvgka0VPTUkVmE593ufPxl8+MkMNKWTKgDQQTc+3C9HI4ujb66EYVq93ZU0MtiGPmBB5Vd0UJKS1rwLfVkNYVa28HOwt9bdm3QNMuOrAtLS94Z+bwPHKqD5iulmTCJ3fcrqokKxC1kDGdIrGfkReqxgn1x3aMGR6ks208G1XLFnAxKwMWob6si9ik245RrwoKiSv+PPjGTQVAcpxnY674HkMVhU8EUjglLAcIO8C5Z3tBL5ahNryS8ti3GjK8kUQQyl6fjW6pFStL25k67xwgCAJ1WdruGbvduiuQrUcLdBU6flXJlePhFbaFEr23PzvY42W/PU0nO9yUupOwBskqkvsojvESH5bkPNmBiWizOxLu6tGYE6tpMBmHlQnUVzl1OZ/zbncqHk2qsqQTsH5WyDc1gLs1m/TTuOrAA6OzEeiJaJ1N3I71GOeDhQ7B67zZtbaBuH8025xyNCN9QpL652L4iVtwhLNhzNTDl4BX1848Mc6m6Gto1rbMGq+4wjsgYJE+T9wLFo968YBtOQI4UejEjnn7GfBfBH7HWZ90K5JqlpjzfVcvPjDv3SRADChbBlmemSmmOo2AALemPG3fjjHFawrqCWBJQgmJOHkkSBFx/GeeQulId/PIf8p9LUi7I9CCeHCPL11rxeqTyaTwRiZJEg8s46Trh18SSCGdG1kQk4bvJn0QnFV1m5NEeOxtc08Uow/f2E7nWuuKzcu8o8aooazNvKdwIaSeWIGAM=",
+            "page_age": "10 hours ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "AI News & Artificial Intelligence | TechCrunch",
+            "url": "https://techcrunch.com/category/artificial-intelligence/",
+            "encrypted_content": "EpEFCioIDxgCIiRjZTA1MTQzMi0wZjgxLTQ2Y2EtYTNlMy1hZGM1NzZlNDcwMGUSDBNHEQJL9YP97cf3QBoMlzUZ0G990owxN44WIjBm0vmO7mgSdK7f2H23Op1gQtvkQPvWthsjK0syjAF+0DPTBKDIAg+0181JAEpV/9YqlATGsQIKjKPbNLyxl2/QdA1mgUzQkN7c8AvB//+z0wdHjgGu1JWSXt2APGRbzXK0lpT3CILWXFc38D/GU21W5oemsl+BqC3zDRpRmx4v0K8jiPWfibAeKO4Oq6Sb5FstXN5/ID+1eK2hBjAP9OKVwMAvkM1fl70sfW/lWwQEDk3xAnisPshY9cZBjStVMGGlzkwdyG6iCRHT/pcclXJ40l9/iqM9MlqqzWTY2WPikLX9UaTokzy5qKRo9wzza/fNQICxxeLknMP6xSQdhkTs+ShqAraelyh+S4Xnni4Lb70Wpwn+n4TygWfdeqZgVejj6PhXoONBdUqto0KKBiKo+rDmevkreuhgPLrHjXqHQWC5SS6Pu5I8Ai9sDmBERiGOLA6k7SZkh+a6RKZu4Gt6rfO9oxvNWSd/mADgpMNt3FDDm3J9aUZt6aoPsS53uG/cQXu9ykzVz99uSDX+837/8jt9qjgatCSAkl0AN8Y/B2/W8pSPFFvdbH2L8ad66FJAmODOAIu0AWsvt0O8N4SXNjKU6moEsLKS++Z7inZyuOP23b1ILUDr4hfdcyzmdJwwEyBupRNxOSTrHC6d20VS4Qpe4IJOT+PAGc4Dh+JmvdKbI7hZstoQ5NdTmLkniG3UlLHr789hkDaoJJLbhxhGV7Blp8tGzeniVGWr2xGVtyFAw5w+CfQkOmRhoJO9Cm/p/RrSE61KGAM=",
+            "page_age": "1 day ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "Artificial intelligence news: Chat AI, ChatGPT, AI generator, AI Chatbot and Bard | NBC News",
+            "url": "https://www.nbcnews.com/artificial-intelligence",
+            "encrypted_content": "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",
+            "page_age": "3 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "Artificial intelligence | MIT News | Massachusetts Institute of Technology",
+            "url": "https://news.mit.edu/topic/artificial-intelligence2",
+            "encrypted_content": "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",
+            "page_age": "1 day ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "The Rundown AI | The Rundown AI",
+            "url": "https://www.therundown.ai/",
+            "encrypted_content": "EoEECioIDxgCIiRjZTA1MTQzMi0wZjgxLTQ2Y2EtYTNlMy1hZGM1NzZlNDcwMGUSDIb12VP2iXgsJShQxhoMFnaT0xOYG3AEAOkDIjBXVfVvA3bUBSgyGULE91Gd6FkrcKcJz9bjzb1jYHqGfMOSXW+tWh4N0pysnZ5FnVAqhAO+twf+cHW/h3jwhVbKQZvPc69Q4bp9OUimmp7HmkkmqIX8oNvIZtdVf60K7ZZQkTuaPmmMdg9XHmKI4zsqVKk4nyXudfLAuioo5y4kqcmEEaK4sh/6h0GnF/KffgBI88MM1aXQPX5wfK3uYN4JRVscpfTSsigtxsxy0AKTEofxl1q6rq6WXZDm5oA5L5wknpSHEAFWiNCW62abTZhp3WT1T88cNPuTZ1x5TF+5xTHqnCvFCbxGRPYHneHf8VYPewbIVIjKX8FdzxgAvChwW4o7UWuWsuvEWTZCqtP+VH+bwlN4tgD8dcpoBIuf3QBcTGhjiCK19hthznNbv1MKj5mqWwgtglyvCyLzWlsh+AcT1hWyl1eR8iwXBZwBgZh/edoecN6E2WQ1krxvFpPSImaitZezl9QU/aZ1nXFCTGFAMtVh1G2sClkLJumK9bDAawfF33offHpDUG+T4lN2sYCdNommZzvB8TK7mlKkgtoeos5p6F99J0FT0rWd/Eh07PSFvrBVGAM=",
+            "page_age": "4 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "OpenAI News | OpenAI",
+            "url": "https://openai.com/news/",
+            "encrypted_content": "EvABCioIDxgCIiRjZTA1MTQzMi0wZjgxLTQ2Y2EtYTNlMy1hZGM1NzZlNDcwMGUSDOk7fnMg2u9PDrg+JBoMpu5EdxdivEmPbSFGIjAhalU3gwM/IC7Xydbz4WbePcRpGwCiG73C+6q2T2CA0y6u58rxTHus3W1t6DJRm0gqdGsxEwxcDc1x+BcN6eYtMrXYnXsHAamozaMU2jU6/lm3JeE2WCK/SaH2F/WF3IMg/1UvRwDqvMU84+uGRi7hphL66uykcLwyxywWgg8iot95V106aHJ32F+UFybyIxOw8a4r9YBd+lvwwiGxb9/Udzyx+VUnGAM=",
+            "page_age": "2 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "AI - Bloomberg",
+            "url": "https://www.bloomberg.com/ai",
+            "encrypted_content": "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",
+            "page_age": "1 day ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "AI News & Articles - Artificial Intelligence Updates - IEEE Spectrum",
+            "url": "https://spectrum.ieee.org/topic/artificial-intelligence/",
+            "encrypted_content": "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",
+            "page_age": "1 month ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "The Latest AI News, Insights and Reports | AI Magazine",
+            "url": "https://aimagazine.com/",
+            "encrypted_content": "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",
+            "page_age": "4 days ago"
+          },
+          {
+            "type": "web_search_result",
+            "title": "AI News — Weekly AI Newsletter for Professionals | AI Weekly",
+            "url": "https://aiweekly.co/",
+            "encrypted_content": "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",
+            "page_age": "5 days ago"
+          }
+        ],
+        "caller": {
+          "type": "direct"
+        }
+      },
+      {
+        "type": "text",
+        "text": "# Latest AI News Today\n\nHere's a roundup of the most notable AI stories making headlines today:\n\n## Major Legal Battle: Musk vs. OpenAI Trial\nThe high-profile legal showdown between Elon Musk and OpenAI is dominating headlines. "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "The civil trial between the tech billionaires kicked off Monday and could help define the future of artificial intelligence. The trial is scheduled to run for four weeks, with a cast of prominent tech executives set to take the stand."
+      },
+      {
+        "type": "text",
+        "text": " "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Jury selection wrapped Monday, and Musk testified Tuesday in the $134B suit to return OpenAI's assets to the nonprofit and oust Altman."
+      },
+      {
+        "type": "text",
+        "text": " "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Musk was at times boastful and snarky, using the witness stand to attack Sam Altman and as a platform to score points against other tech rivals, claiming Altman betrayed the original principles of OpenAI to remain a nonprofit and that the company benefited from his money and connections."
+      },
+      {
+        "type": "text",
+        "text": "\n\n## Big Tech Earnings & AI Investment Surge\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Alphabet Q1 beat estimates with $109.9B revenue; Google Cloud surged 63% to $20B as AI capex was raised to $190B."
+      },
+      {
+        "type": "text",
+        "text": "\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Microsoft Q3 beat estimates; its AI business hit a $37B annual run rate, up 123% YoY."
+      },
+      {
+        "type": "text",
+        "text": "\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Amazon Q1 beat estimates with $181.5B revenue; AWS posted 28% growth, the fastest in 15 quarters."
+      },
+      {
+        "type": "text",
+        "text": "\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "OpenAI missed revenue targets, dragging Oracle and chip stocks down with it."
+      },
+      {
+        "type": "text",
+        "text": "\n\n## AI Security Concerns\n"
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "An AI company's own experts warned that \"Mythos\" could hack the systems beneath most modern computing, and banks and government agencies are racing to gauge the threat."
+      },
+      {
+        "type": "text",
+        "text": "\n\n## Government & Defense AI\n"
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Google has joined OpenAI in allowing the Pentagon to use its AI systems, while rival Anthropic remains embroiled in a court battle after seeking stronger safeguards."
+      },
+      {
+        "type": "text",
+        "text": " "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "The high-stakes conflict between the Defense Department and a $380 billion tech powerhouse goes to the heart of just how far AI can go in warfare."
+      },
+      {
+        "type": "text",
+        "text": "\n\n## Regulation & Policy\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Florida Governor DeSantis is emerging as a voice of AI skepticism in the Republican Party, but state lawmakers declined to take up his push for legislation."
+      },
+      {
+        "type": "text",
+        "text": "\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "A bill that had passed both chambers of the state Legislature would have imposed the country's first statewide moratorium on new data center construction."
+      },
+      {
+        "type": "text",
+        "text": "\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Seven families of Tumbler Ridge shooting victims have sued OpenAI and Sam Altman in federal court."
+      },
+      {
+        "type": "text",
+        "text": "\n\n## AI Industry & Applications\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Many companies are increasingly looking to AI agents as a way to boost employee productivity and automate rote chores."
+      },
+      {
+        "type": "text",
+        "text": "\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Amazon Connect Talent – now available in preview – uses AI \"teammates\" to conduct 24/7 interviews and score candidates, easing the hiring process."
+      },
+      {
+        "type": "text",
+        "text": "\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Rogo, started by young bankers around a kitchen table in 2021, just won a multibillion-dollar valuation, and Roblox is set to challenge Unity and Unreal engines with new AI software."
+      },
+      {
+        "type": "text",
+        "text": "\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Actor Matthew McConaughey filed trademarks to protect his likeness against unauthorized AI replications."
+      },
+      {
+        "type": "text",
+        "text": "\n\n## Research Highlights from MIT\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "A new dataset of 30,000-plus competition math problems from 47 countries gives AI researchers a harder test — and students worldwide a better training ground."
+      },
+      {
+        "type": "text",
+        "text": "\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "A new training method improves the reliability of AI confidence estimates without sacrificing performance, addressing a root cause of hallucination in reasoning models."
+      },
+      {
+        "type": "text",
+        "text": "\n- "
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "A new debiasing technique called WRING avoids creating or amplifying biases that can occur with existing debiasing approaches."
+      },
+      {
+        "type": "text",
+        "text": "\n\n## Infrastructure Concerns\n"
+      },
+      {
+        "citations": [],
+        "type": "text",
+        "text": "Nuclear AI startup Fermi promised land and ample power but couldn't sign a single client. Now the ex-CEO is waging a battle for Fermi's future and its vision of atomic-powered data centers in the Texas panhandle."
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 31,
+      "cache_creation_input_tokens": 12805,
+      "cache_read_input_tokens": 3270,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 3270,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 1740,
+      "service_tier": "standard",
+      "inference_geo": "not_available",
+      "server_tool_use": {
+        "web_search_requests": 1,
+        "web_fetch_requests": 0
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "headers": {
+    "_status": "HTTP/2 200",
+    "server": "nginx/1.24.0 (Ubuntu)",
+    "date": "Sun, 03 May 2026 12:44:28 GMT",
+    "content-type": "application/json",
+    "content-length": "285",
+    "vary": "origin, access-control-request-method, access-control-request-headers",
+    "access-control-allow-origin": "*",
+    "access-control-expose-headers": "*",
+    "cf-cache-status": "DYNAMIC",
+    "cf-ray": "9f5f5b6b3f765389-LAX",
+    "nel": "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}",
+    "report-to": "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=5grd28j3kWpkxdClE4k1QXxWQQAfuKIe04vFcw7s8TrcLo4pGDUDUE3SeLZPkWsNi1RxfuH3Qirxbl5FB%2BlEC74v8JQHEXncyRoauTeqIxms4E5TlGqNKsLjD%2FRUe%2Fw%3D\"}]}",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+    "x-new-api-version": "v1.0.0-rc.2",
+    "x-oneapi-request-id": "202605031244267534734728268d9d6sreNx12A",
+    "x-frame-options": "SAMEORIGIN",
+    "x-content-type-options": "nosniff"
+  },
+  "body": {
+    "content": [
+      {
+        "text": "Hi",
+        "type": "text"
+      }
+    ],
+    "id": "msg_1777812268707",
+    "model": "claude-sonnet-4-6",
+    "role": "assistant",
+    "stop_reason": "max_tokens",
+    "stop_sequence": null,
+    "type": "message",
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 413,
+      "output_tokens": 1
+    }
+  }
+}

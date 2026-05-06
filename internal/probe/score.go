@@ -1,103 +1,5 @@
 package probe
 
-// Category represents a scoring category for probe checks.
-type Category string
-
-const (
-	CatCritical      Category = "critical"
-	CatStructural    Category = "structural"
-	CatHeaders       Category = "headers"
-	CatThinking      Category = "thinking"
-	CatSSE           Category = "sse"
-	CatCache         Category = "cache"
-	CatBehavioral    Category = "behavioral"
-	CatContamination Category = "contamination"
-)
-
-// CategoryMeta holds static metadata for each category.
-type CategoryMeta struct {
-	Key    Category
-	Label  string
-	Weight float64
-}
-
-var categoryOrder = []CategoryMeta{
-	{CatCritical, "反伪造核心", 30},
-	{CatStructural, "响应体结构", 20},
-	{CatHeaders, "HTTP 头部", 12},
-	{CatThinking, "思考与签名", 12},
-	{CatSSE, "流格式", 8},
-	{CatCache, "缓存行为", 8},
-	{CatBehavioral, "LLM 行为验证", 7},
-	{CatContamination, "上游泄漏", 3},
-}
-
-// checkCategoryMap maps check names to their category.
-var checkCategoryMap = map[string]Category{
-	// Critical
-	"id_format":                CatCritical,
-	"backend_type":             CatCritical,
-	"inference_geo":            CatCritical,
-	"stop_details":             CatCritical,
-	"stop_details_structure":   CatCritical,
-	"small_output_tokens":      CatCritical,
-	"small_stop_reason":        CatCritical,
-
-	// Structural
-	"usage_structure":         CatStructural,
-	"field_order":             CatStructural,
-	"model_name":              CatStructural,
-	"stop_reason":             CatStructural,
-	"tool_stop_reason":        CatStructural,
-	"delta_usage_slim":        CatStructural,
-	"message_start_usage":     CatStructural,
-	"nonstream_fields":        CatStructural,
-	"nonstream_type":          CatStructural,
-	"nonstream_role":          CatStructural,
-	"tool_use_id":             CatStructural,
-	"web_search_result":       CatStructural,
-	"structured_json_valid":   CatStructural,
-	"structured_schema_match": CatStructural,
-	"structured_stop_reason":  CatStructural,
-
-	// Headers
-	"headers":             CatHeaders,
-	"request_id":          CatHeaders,
-	"x_new_api_version":   CatHeaders,
-	"cf_headers":          CatHeaders,
-	"server_timing":       CatHeaders,
-
-	// Thinking
-	"signature":                CatThinking,
-	"thinking_present":         CatThinking,
-	"thinking_order":           CatThinking,
-	"thinking_display_omitted": CatThinking,
-	"no_thinking_leak":         CatThinking,
-
-	// SSE
-	"sse_done":        CatSSE,
-	"sse_event_order": CatSSE,
-	"sse_tailing":     CatSSE,
-
-	// Cache
-	"cache_small_probe":    CatCache,
-	"cache_fake":           CatCache,
-	"small_ephemeral_zero": CatCache,
-	"small_cache_zero":     CatCache,
-
-	// Behavioral
-	"tag_replay":         CatBehavioral,
-	"identity_response":  CatBehavioral,
-	"poison_answer":      CatBehavioral,
-	"logic_answer":       CatBehavioral,
-	"image_ocr":          CatBehavioral,
-	"pdf_extract":        CatBehavioral,
-
-	// Contamination
-	"container":      CatContamination,
-	"bedrock_state":  CatContamination,
-}
-
 // CategoryScore represents the score for a single category.
 type CategoryScore struct {
 	Key        Category      `json:"key"`
@@ -142,7 +44,6 @@ func CalculateScore(checks []CheckResult, mode string) *ScoreReport {
 		if existing, exists := deduped[dk]; !exists {
 			deduped[dk] = c
 		} else if existing.Pass && !c.Pass {
-			// Take the failing one (worst result)
 			deduped[dk] = c
 		}
 	}
@@ -157,7 +58,7 @@ func CalculateScore(checks []CheckResult, mode string) *ScoreReport {
 	var categories []CategoryScore
 	var totalWeightedScore float64
 	var totalActiveWeight float64
-	criticalFails := 0
+	fingerprintFails := 0
 	backendTypeFailed := false
 
 	for _, meta := range categoryOrder {
@@ -170,8 +71,8 @@ func CalculateScore(checks []CheckResult, mode string) *ScoreReport {
 		for _, c := range cks {
 			if c.Pass {
 				passed++
-			} else if meta.Key == CatCritical {
-				criticalFails++
+			} else if meta.Key == CatFingerprint {
+				fingerprintFails++
 				if c.Name == "backend_type" {
 					backendTypeFailed = true
 				}
@@ -206,9 +107,9 @@ func CalculateScore(checks []CheckResult, mode string) *ScoreReport {
 		score = totalWeightedScore / totalActiveWeight * 100
 	}
 
-	// Step 5: Critical penalty
+	// Step 5: Fingerprint penalty (>=3 fingerprint fails → -10)
 	var penalty float64
-	if criticalFails >= 3 {
+	if fingerprintFails >= 3 {
 		penalty = 10
 		score -= penalty
 	}
@@ -220,7 +121,7 @@ func CalculateScore(checks []CheckResult, mode string) *ScoreReport {
 	grade, gradeColor := mapGrade(score)
 
 	// Step 7: Verdict
-	verdict, verdictLabel, verdictColor := mapVerdict(score, criticalFails, backendTypeFailed)
+	verdict, verdictLabel, verdictColor := mapVerdict(score, fingerprintFails, backendTypeFailed)
 
 	// Totals
 	totalChecks := 0
@@ -262,15 +163,15 @@ func mapGrade(score float64) (string, string) {
 	}
 }
 
-func mapVerdict(score float64, criticalFails int, backendTypeFailed bool) (string, string, string) {
+func mapVerdict(score float64, fingerprintFails int, backendTypeFailed bool) (string, string, string) {
 	if backendTypeFailed {
 		return "non_official", "非官方后端", "red"
 	}
-	criticalAllPass := criticalFails == 0
+	allPass := fingerprintFails == 0
 	switch {
-	case score >= 95 && criticalAllPass:
+	case score >= 95 && allPass:
 		return "official", "官方 API", "green"
-	case score >= 80 && criticalAllPass:
+	case score >= 80 && allPass:
 		return "good", "伪装良好", "blue"
 	case score >= 80:
 		return "suspected", "疑似伪造", "orange"

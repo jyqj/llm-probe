@@ -1,0 +1,40 @@
+{
+  "headers": {
+    "_status": "HTTP/1.1 200 OK",
+    "Content-Type": "application/json",
+    "Date": "Sat, 02 May 2026 15:37:57 GMT",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-Ratelimit-Limit-Requests": "450",
+    "X-Ratelimit-Limit-Tokens": "450000",
+    "X-Ratelimit-Remaining-Requests": "449",
+    "X-Ratelimit-Remaining-Tokens": "387882",
+    "X-Ratelimit-Reset-Requests": "133",
+    "X-Ratelimit-Reset-Tokens": "8282",
+    "X-Request-Id": "92b50689-0282-4d6e-884d-27f8eade5994",
+    "Content-Length": "423"
+  },
+  "body": {
+    "model": "claude-opus-4-7",
+    "id": "msg_01HYFH3GFHbDUoGYV1dSzRkG",
+    "type": "message",
+    "role": "assistant",
+    "content": [],
+    "stop_reason": "max_tokens",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 58,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 1,
+      "service_tier": "standard",
+      "inference_geo": "not_available"
+    }
+  }
+}

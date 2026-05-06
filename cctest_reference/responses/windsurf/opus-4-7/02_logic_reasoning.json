@@ -1,0 +1,37 @@
+{
+  "headers": {
+    "_status": "HTTP/2 200",
+    "server": "nginx/1.24.0 (Ubuntu)",
+    "date": "Sun, 03 May 2026 12:44:53 GMT",
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    "x-new-api-version": "v0.13.0",
+    "x-oneapi-request-id": "202605031244509720170358268d9d6vnlxUptW",
+    "x-frame-options": "SAMEORIGIN",
+    "x-content-type-options": "nosniff",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload"
+  },
+  "body": {
+    "content": [
+      {
+        "text": "# 3开关3灯的经典解法\n\n**核心思路**：利用灯泡的两个状态维度——**亮/灭** 和 **热/冷**。\n\n**步骤**：\n1. 打开开关A，等待约 10 分钟（让灯泡充分发热）\n2. 关闭开关A，立刻打开开关B\n3. 开关C 保持关闭\n4. 上楼检查三盏灯：\n\n| 灯的状态 | 对应开关 |\n|---------|---------|\n| 亮着 | B |\n| 灭着，但灯泡发热 | A |\n| 灭着，且灯泡是冷的 | C |\n\n这样一次上楼就能区分 3 个开关。\n\n---\n\n# 4开关4灯怎么办？\n\n3 开关用到了 **2 个二元状态**（开/关、热/冷），能区分 2×2 = 4 种情况，但我们只需要 3 种，所以有冗余。\n\n**到了 4 开关，恰好需要 2×2 = 4 种组合**，把两个维度都用满即可。\n\n**步骤**：\n1. 打开开关A，等 10 分钟，然后**关闭**A —— A 对应\"灭 + 热\"\n2. 打开开关B，等 10 分钟，**保持打开** —— B 对应\"亮 + 热\"\n3. 临上楼前，打开开关C —— C 对应\"亮 + 冷\"（刚打开，还没热）\n4. 开关D 始终不动 —— D 对应\"灭 + 冷\"\n5. 上楼检查：\n\n| 灯的状态 | 对应开关 |\n|---------|---------|\n| 亮 + 热 | B |\n| 亮 + 冷 | C |\n| 灭 + 热 | A |\n| 灭 + 冷 | D |\n\n---\n\n# 推广思路\n\n把每盏灯看作一个**多位编码器**：\n- **亮/灭**：1 bit\n- **热/温/冷**（通过不同的加热时长制造温度梯度）：可以再榨出 1~2 bit\n\n用 n 个可区分的\"热度等级\" × 2 种开关状态，理论上一次上楼可以区分 **2n 个开关**。例如用\"很热/温热/微温/冷\"4 档温度，就能处理 8 个开关——但实际操作中温度分辨率有限，3~4 档已是极限。",
+        "type": "text"
+      }
+    ],
+    "id": "msg_1777812293651",
+    "model": "claude-opus-4-7",
+    "role": "assistant",
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "type": "message",
+    "usage": {
+      "cache_creation_input_tokens": 32549,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 6,
+      "output_tokens": 782,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 32549
+      }
+    }
+  }
+}

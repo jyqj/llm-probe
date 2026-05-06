@@ -1,0 +1,29 @@
+{
+  "headers": {
+    "_status": "HTTP/2 200",
+    "server": "nginx/1.24.0 (Ubuntu)",
+    "date": "Sun, 03 May 2026 12:44:19 GMT",
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    "x-new-api-version": "v0.13.0",
+    "x-oneapi-request-id": "202605031244189986951118268d9d6T1EtdwZD",
+    "x-frame-options": "SAMEORIGIN",
+    "x-content-type-options": "nosniff",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload"
+  },
+  "body": {
+    "content": [],
+    "id": "msg_1777812259734",
+    "model": "claude-sonnet-4-6",
+    "role": "assistant",
+    "stop_reason": null,
+    "stop_sequence": null,
+    "type": "message",
+    "usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 0,
+      "output_tokens": 0
+    }
+  }
+}

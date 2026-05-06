@@ -4,57 +4,49 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-
-	"bedrock-gateway/internal/config"
 )
+
+// ReportSink receives completed probe reports for external consumption.
+type ReportSink func(upstreamBase string, report *ProbeReport)
 
 // StoreEntry holds cached probe result for one upstream.
 type StoreEntry struct {
-	Report    *ProbeReport
-	Config    config.DisguiseConfig
-	ProbedAt  time.Time
-	Probing   bool // true while async probe is running
+	Report   *ProbeReport
+	ProbedAt time.Time
+	Probing  bool // true while async probe is running
 }
 
-// Store caches per-upstream probe results and DisguiseConfig.
+// Store caches per-upstream probe results only.
 type Store struct {
-	mu       sync.RWMutex
-	entries  map[string]*StoreEntry // key = upstream base URL
-	prober   *Prober
-	fallback config.DisguiseConfig  // global fallback config
-	logger   *slog.Logger
+	mu        sync.RWMutex
+	entries   map[string]*StoreEntry // key = upstream base URL
+	prober    *Prober
+	logger    *slog.Logger
 	autoProbe bool
+	onReport  ReportSink
 }
 
 // NewStore creates a probe store.
-func NewStore(prober *Prober, fallback config.DisguiseConfig, logger *slog.Logger, autoProbe bool) *Store {
+func NewStore(prober *Prober, logger *slog.Logger, autoProbe bool, onReport ReportSink) *Store {
 	return &Store{
 		entries:   make(map[string]*StoreEntry),
 		prober:    prober,
-		fallback:  fallback,
 		logger:    logger,
 		autoProbe: autoProbe,
+		onReport:  onReport,
 	}
 }
 
-// GetConfig returns the DisguiseConfig for a given upstream base URL.
-// If no probe result is cached, returns the global fallback.
-// If autoProbe is enabled and upstream hasn't been probed, triggers async probe.
-func (s *Store) GetConfig(upstreamBase, upstreamKey, model string) config.DisguiseConfig {
+// EnsureProbe triggers async probe for an upstream when no cached report exists.
+func (s *Store) EnsureProbe(upstreamBase, upstreamKey, model string) {
 	s.mu.RLock()
 	entry, ok := s.entries[upstreamBase]
+	hasReport := ok && entry.Report != nil
 	s.mu.RUnlock()
 
-	if ok && entry.Report != nil {
-		return entry.Config
-	}
-
-	// No cached result — maybe trigger async probe
-	if s.autoProbe && upstreamBase != "" && upstreamKey != "" {
+	if !hasReport && s.autoProbe && upstreamBase != "" && upstreamKey != "" {
 		s.triggerAsync(upstreamBase, upstreamKey, model)
 	}
-
-	return s.fallback
 }
 
 // HasResult checks if a probe result is cached for this upstream.
@@ -69,25 +61,26 @@ func (s *Store) HasResult(upstreamBase string) bool {
 func (s *Store) GetEntry(upstreamBase string) *StoreEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.entries[upstreamBase]
+	entry := s.entries[upstreamBase]
+	if entry == nil {
+		return nil
+	}
+	cp := *entry
+	return &cp
 }
 
 // SetResult stores a probe result for an upstream.
-func (s *Store) SetResult(upstreamBase string, report *ProbeReport, cfg config.DisguiseConfig) {
+func (s *Store) SetResult(upstreamBase string, report *ProbeReport) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.entries[upstreamBase] = &StoreEntry{
 		Report:   report,
-		Config:   cfg,
 		ProbedAt: time.Now(),
 	}
-}
+	s.mu.Unlock()
 
-// SetFallback updates the global fallback DisguiseConfig.
-func (s *Store) SetFallback(cfg config.DisguiseConfig) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.fallback = cfg
+	if report != nil && s.onReport != nil {
+		s.onReport(upstreamBase, report)
+	}
 }
 
 // ListEntries returns all cached entries (for admin report).
@@ -96,7 +89,8 @@ func (s *Store) ListEntries() map[string]*StoreEntry {
 	defer s.mu.RUnlock()
 	out := make(map[string]*StoreEntry, len(s.entries))
 	for k, v := range s.entries {
-		out[k] = v
+		cp := *v
+		out[k] = &cp
 	}
 	return out
 }
@@ -132,17 +126,20 @@ func (s *Store) triggerAsync(upstreamBase, upstreamKey, model string) {
 		report, err := s.prober.RunSuite(upstreamBase, upstreamKey, model, true)
 
 		s.mu.Lock()
-		defer s.mu.Unlock()
 		entry.Probing = false
-
 		if err != nil {
+			s.mu.Unlock()
 			s.logger.Warn("auto-probe failed", "upstream", upstreamBase, "error", err)
 			return
 		}
 
 		entry.Report = report
-		entry.Config = report.Recommended
 		entry.ProbedAt = time.Now()
+		s.mu.Unlock()
+
+		if s.onReport != nil {
+			s.onReport(upstreamBase, report)
+		}
 		s.logger.Info("auto-probe completed",
 			"upstream", upstreamBase,
 			"summary", report.Summary,
@@ -156,6 +153,6 @@ func (s *Store) ProbeSync(upstreamBase, upstreamKey, model string, quick bool) (
 	if err != nil {
 		return nil, err
 	}
-	s.SetResult(upstreamBase, report, report.Recommended)
+	s.SetResult(upstreamBase, report)
 	return report, nil
 }

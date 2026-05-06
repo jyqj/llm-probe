@@ -1,0 +1,42 @@
+{
+  "headers": {
+    "_status": "HTTP/2 200",
+    "server": "nginx/1.24.0 (Ubuntu)",
+    "date": "Sun, 03 May 2026 12:41:06 GMT",
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    "x-new-api-version": "v0.13.0",
+    "x-oneapi-request-id": "202605031241024087891998268d9d6sC1pjIQv",
+    "x-frame-options": "SAMEORIGIN",
+    "x-content-type-options": "nosniff",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload"
+  },
+  "body": {
+    "content": [
+      {
+        "signature": "EpYDClkIDRgCKkAqk1E8N5uwoqWSuNw9Vqv5mGjS0JuW3Z9Vr5JIR1yGWWuQKYzuHN3z4EBbWASABK4LQofo1QzggP2Ic6Nzfd5tMg9jbGF1ZGUtb3B1cy00LTY4ABIMMMA58wO6EP2A52uUGgwOThHLy/ajnxTbEysiMDJfXtvVRrn6dgDNZpGLJcmnXmX/4bmnHoEg97jtD//UjsqFgVGvHZn4RGTJWb6MNyrqAf8tnYgSb7dx7zggb6pXv7CFgkCVm4W823o9b37U0M4reWVqHKlhqotsiSk4L2PXBTu0auCBbfy9zjeL97locOOcarvFW3JwOYZR+2pmLmp49vmW6ofKkW+NtdzS2As3k+PQAS0cj4JeP3ZCcB1trRx8m2l1Z2FP2hOlx8yijBFBMJ3bCI6vnCU8TMsLAVH3aMAMZNOalUHqM4Ocmb8wNurbTfT38QwRLeNYLsyAjlcgLVC71qct5gwDj5rkV7lwGrRJiTEHdxHi9wtUAqGoFcKJ2mlAbxcDK7zcJMvh0NUDN0pg591VcYsHXxgB",
+        "thinking": "The user is asking me two things:\n\n1. To directly output the tag I see: `<0ae44bd87ba999a8>`\n2. A nonsensical question: \"adfsjijiadfjioadfsjiasdfojasdfioadfjios？\"\n\nLet me answer both directly without using any tools.",
+        "type": "thinking"
+      },
+      {
+        "text": "1. 我看到的 tag 是：`<0ae44bd87ba999a8>`\n\n2. 这看起来是一串随机字符，不是一个有意义的问题。如果你有实际的问题，请重新描述一下。",
+        "type": "text"
+      }
+    ],
+    "id": "msg_1777812066428",
+    "model": "claude-opus-4-6",
+    "role": "assistant",
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "type": "message",
+    "usage": {
+      "cache_creation_input_tokens": 23846,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 3,
+      "output_tokens": 160,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 23846
+      }
+    }
+  }
+}

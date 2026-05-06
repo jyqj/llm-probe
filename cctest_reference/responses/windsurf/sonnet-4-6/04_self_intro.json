@@ -1,0 +1,42 @@
+{
+  "headers": {
+    "_status": "HTTP/2 200",
+    "server": "nginx/1.24.0 (Ubuntu)",
+    "date": "Sun, 03 May 2026 12:44:03 GMT",
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    "x-new-api-version": "v0.13.0",
+    "x-oneapi-request-id": "202605031244012079145438268d9d6pUgS7w8V",
+    "x-frame-options": "SAMEORIGIN",
+    "x-content-type-options": "nosniff",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload"
+  },
+  "body": {
+    "content": [
+      {
+        "signature": "EoMCCkgIDRABGAIqQKMIWEI29SJl1oqhQwNg6Jscf3JVqeOe/M0aqvu9NyDEc9JGn2JRuXV/KKaC5/SvMbV/WCQkQSicdy91ZUmjfscSDO3LIfgLbXi4fL+yNBoMggS1SWnzuZV4Zl0eIjBFzupa1K1LD6ywksIbi5UTLgrF0oz9sr7rQQsxDY/yKFsr0pjepDkOVANZo6xbSCgqaTmxon1tVo6+5zLbjrrEIE71O/sldHqVrmcHObbv4uOWLg4GO3Ao/y6KZyFYCl4Er74YU4S5qG4K//4hgGtPHVlimXbbMX0HJ5L8bYXYIxgpktb11kk+azgE1JzoWXFGC65mtjYM1/dGtBgB",
+        "thinking": "The user wants me to introduce myself in one sentence, including a title and description.",
+        "type": "thinking"
+      },
+      {
+        "text": "**Claude Code** — Anthropic 出品的 AI 编程助手，专注于帮助开发者完成代码编写、调试、重构等软件工程任务。",
+        "type": "text"
+      }
+    ],
+    "id": "msg_1777812243189",
+    "model": "claude-sonnet-4-6",
+    "role": "assistant",
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "type": "message",
+    "usage": {
+      "cache_creation_input_tokens": 23615,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 3,
+      "output_tokens": 84,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 23615
+      }
+    }
+  }
+}

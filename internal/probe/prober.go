@@ -1,18 +1,11 @@
 package probe
 
 import (
-	"bufio"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
-	"sync"
 	"time"
 
-	"bedrock-gateway/internal/probe/data"
+	"detector-service/internal/probe/data"
 )
 
 // Prober sends test requests to a target API and analyzes responses.
@@ -25,82 +18,6 @@ func NewProber() *Prober {
 	return &Prober{
 		HTTPClient: &http.Client{Timeout: 180 * time.Second},
 	}
-}
-
-// RunSuite runs the probe suite against a target.
-func (p *Prober) RunSuite(targetBase, targetKey, model string, quick bool) (*ProbeReport, error) {
-	start := time.Now()
-	var checks []CheckResult
-
-	// Phase 1a: precheck — bare minimum streaming request
-	if c, err := p.runPrecheck(targetBase, targetKey, model); err != nil {
-		return nil, fmt.Errorf("precheck: %w", err)
-	} else {
-		checks = append(checks, c...)
-	}
-
-	// Phase 1b: tag_replay — full Claude Code fingerprint
-	if c, err := p.runTagReplay(targetBase, targetKey, model); err != nil {
-		return nil, fmt.Errorf("tag_replay: %w", err)
-	} else {
-		checks = append(checks, c...)
-	}
-
-	if !quick {
-		type probeTask struct {
-			name string
-			fn   func() ([]CheckResult, error)
-		}
-		tasks := []probeTask{
-			{"mini_probe", func() ([]CheckResult, error) { return p.runMiniProbe(targetBase, targetKey, model) }},
-			{"identity_probe", func() ([]CheckResult, error) { return p.runIdentityProbe(targetBase, targetKey, model) }},
-			{"self_intro", func() ([]CheckResult, error) { return p.runSelfIntroProbe(targetBase, targetKey, model) }},
-			{"tool_use", func() ([]CheckResult, error) { return p.runToolUseProbe(targetBase, targetKey, model) }},
-			{"logic", func() ([]CheckResult, error) { return p.runLogicProbe(targetBase, targetKey, model) }},
-			{"image_ocr", func() ([]CheckResult, error) { return p.runImageOCR(targetBase, targetKey, model) }},
-			{"pdf_extract", func() ([]CheckResult, error) { return p.runPDFExtract(targetBase, targetKey, model) }},
-		}
-
-		slots := make([][]CheckResult, len(tasks))
-		var wg sync.WaitGroup
-		wg.Add(len(tasks))
-		for i, t := range tasks {
-			go func(idx int, task probeTask) {
-				defer wg.Done()
-				slots[idx] = p.safe(task.name, task.fn)
-			}(i, t)
-		}
-		wg.Wait()
-
-		for _, s := range slots {
-			checks = append(checks, s...)
-		}
-	}
-
-	mode := "full"
-	if quick {
-		mode = "quick"
-	}
-
-	report := &ProbeReport{
-		Target:    targetBase,
-		Model:     model,
-		Timestamp: time.Now(),
-		ElapsedMs: time.Since(start).Milliseconds(),
-		Checks:    checks,
-	}
-	report.Recommended = RecommendConfig(checks)
-	report.Score = CalculateScore(checks, mode)
-	report.Summary = BuildSummaryWithScore(checks, report.Score)
-	return report, nil
-}
-
-func (p *Prober) safe(name string, fn func() ([]CheckResult, error)) []CheckResult {
-	c, err := fn()
-	if err != nil {
-		return []CheckResult{{Name: name, Pass: false, Detail: err.Error()}}
-	}
-	return c
 }
 
 // ════════════════════════════════════════════════════════════
@@ -129,12 +46,17 @@ func (p *Prober) runPrecheck(targetBase, targetKey, model string) ([]CheckResult
 	checks = append(checks, checkXNewApiVersion(resp.Header))
 	checks = append(checks, checkCfHeaders(resp.Header))
 	checks = append(checks, checkServerTiming(resp.Header))
+	checks = append(checks, checkCfRayFormat(resp.Header))
+	checks = append(checks, checkCookieDomain(resp.Header))
+	checks = append(checks, checkServerHeader(resp.Header))
 
 	sse, start, _ := readSSE(resp.Body)
 	checks = append(checks, checkSSEDone(sse))
 	checks = append(checks, checkSSEEventOrder(sse))
 	checks = append(checks, checkSSETailing(sse))
 	checks = append(checks, checkMessageDeltaUsage(sse))
+	checks = append(checks, checkSSEPingPosition(sse))
+	checks = append(checks, checkMessageStartOutputZero(sse))
 
 	if start != nil {
 		checks = append(checks, checkContainer(start))
@@ -179,9 +101,10 @@ func (p *Prober) runTagReplay(targetBase, targetKey, model string) ([]CheckResul
 
 	if full == nil {
 		return batchFail([]string{
-			"id_format", "model_name", "signature", "thinking_present",
-			"usage_structure", "field_order", "inference_geo", "stop_details",
-			"stop_details_structure", "stop_reason", "thinking_order",
+			"id_format", "model_name", "signature", "signature_length",
+			"thinking_present", "usage_structure", "field_order",
+			"inference_geo", "stop_details", "stop_details_structure",
+			"stop_reason", "stop_sequence_null", "thinking_order",
 			"thinking_display_omitted", "tag_replay", "cache_fake",
 			"message_start_usage",
 		}), nil
@@ -191,6 +114,7 @@ func (p *Prober) runTagReplay(targetBase, targetKey, model string) ([]CheckResul
 		checkIDFormat(full),
 		checkModelName(full, model),
 		checkSignature(full),
+		checkSignatureLength(full),
 		checkThinkingPresent(full),
 		checkUsageStructure(full),
 		checkFieldOrder([]byte(sse)),
@@ -198,11 +122,17 @@ func (p *Prober) runTagReplay(targetBase, targetKey, model string) ([]CheckResul
 		checkStopDetails(full),
 		checkStopDetailsStructure(full),
 		checkStopReason(full),
+		checkStopSequenceNull(full),
 		checkThinkingOrder(full),
 		checkThinkingDisplayOmitted(full, model),
 		checkTagReplay(full, tag),
 		checkCacheFake(full),
 		checkMessageStartUsage(sse),
+		checkSSEPingPosition(sse),
+		checkServiceTier(full),
+		checkSignatureTypeLeak(full),
+		checkUsageFieldsComplete(full),
+		checkCacheCreationComplete(full),
 	}, nil
 }
 
@@ -229,6 +159,7 @@ func (p *Prober) runMiniProbe(targetBase, targetKey, model string) ([]CheckResul
 	var checks []CheckResult
 	checks = append(checks, checkBackendType(j))
 	checks = append(checks, checkSmallProbeExact(j)...)
+	checks = append(checks, checkTokenBudget(j, model))
 	return checks, nil
 }
 
@@ -260,9 +191,16 @@ func (p *Prober) runIdentityProbe(targetBase, targetKey, model string) ([]CheckR
 	var checks []CheckResult
 	checks = append(checks, checkNonStreamBody(j)...)
 	checks = append(checks, checkFieldOrder(raw))
+	checks = append(checks, checkBodyKeyOrder(raw))
 	checks = append(checks, checkIDFormat(j))
 	checks = append(checks, checkIdentityResponse(j))
+	checks = append(checks, checkIdentityNoLeak(j))
+	checks = append(checks, checkIdentityPlatform(j))
 	checks = append(checks, checkPoisonAnswer(j))
+	checks = append(checks, checkStopSequenceNull(j))
+	checks = append(checks, checkServiceTier(j))
+	checks = append(checks, checkSignatureTypeLeak(j))
+	checks = append(checks, checkUsageFieldsComplete(j))
 	return checks, nil
 }
 
@@ -308,11 +246,11 @@ func (p *Prober) runSelfIntroProbe(targetBase, targetKey, model string) ([]Check
 	full := merge(start, delta, sse)
 	if full == nil {
 		return []CheckResult{
-			{Name: "no_thinking_leak", Pass: false, Detail: "parse failed", Fix: "BodyRewrite"},
+			{Name: "no_thinking_leak", Pass: false, Detail: "parse failed", Fix: "body_rewrite"},
 			{Name: "identity_response", Pass: false, Detail: "parse failed"},
-			{Name: "structured_json_valid", Pass: false, Detail: "parse failed", Fix: "BodyRewrite"},
-			{Name: "structured_schema_match", Pass: false, Detail: "parse failed", Fix: "BodyRewrite"},
-			{Name: "structured_stop_reason", Pass: false, Detail: "parse failed", Fix: "BodyRewrite"},
+			{Name: "structured_json_valid", Pass: false, Detail: "parse failed", Fix: "body_rewrite"},
+			{Name: "structured_schema_match", Pass: false, Detail: "parse failed", Fix: "body_rewrite"},
+			{Name: "structured_stop_reason", Pass: false, Detail: "parse failed", Fix: "body_rewrite"},
 		}, nil
 	}
 
@@ -341,13 +279,13 @@ func (p *Prober) runToolUseProbe(targetBase, targetKey, model string) ([]CheckRe
 		"system": []any{
 			billingBlock(),
 			map[string]any{
-				"type": "text",
-				"text": "You are Claude Code, Anthropic's official CLI for Claude.",
+				"type":          "text",
+				"text":          "You are Claude Code, Anthropic's official CLI for Claude.",
 				"cache_control": map[string]any{"type": "ephemeral"},
 			},
 			map[string]any{
-				"type": "text",
-				"text": "You are an assistant for performing a web search tool use",
+				"type":          "text",
+				"text":          "You are an assistant for performing a web search tool use",
 				"cache_control": map[string]any{"type": "ephemeral"},
 			},
 		},
@@ -382,15 +320,19 @@ func (p *Prober) runToolUseProbe(targetBase, targetKey, model string) ([]CheckRe
 	full := merge(start, delta, sse)
 	if full == nil {
 		return []CheckResult{
-			{Name: "tool_use_id", Pass: false, Detail: "parse failed", Fix: "IDRewrite"},
-			{Name: "web_search_result", Pass: false, Detail: "parse failed", Fix: "SignatureRewrite"},
+			{Name: "tool_use_id", Pass: false, Detail: "parse failed", Fix: "id_rewrite"},
+			{Name: "web_search_result", Pass: false, Detail: "parse failed", Fix: "signature_rewrite"},
 		}, nil
 	}
 
 	return []CheckResult{
 		checkToolUseID(full),
 		checkToolStopReason(full),
+		checkToolForcedCompliance(full),
 		checkWebSearchResult(full),
+		checkServerToolType(full),
+		checkCitationsPresent(full),
+		checkServerToolUsage(full),
 	}, nil
 }
 
@@ -433,6 +375,9 @@ func (p *Prober) runLogicProbe(targetBase, targetKey, model string) ([]CheckResu
 // ════════════════════════════════════════════════════════════
 
 func (p *Prober) runImageOCR(targetBase, targetKey, model string) ([]CheckResult, error) {
+	ocrText := data.RandomOCRText(8)
+	imgB64 := data.GenTestImageBase64(ocrText)
+
 	body := toJSON(map[string]any{
 		"model":      model,
 		"max_tokens": 1024,
@@ -450,7 +395,7 @@ func (p *Prober) runImageOCR(targetBase, targetKey, model string) ([]CheckResult
 						"source": map[string]any{
 							"type":       "base64",
 							"media_type": "image/png",
-							"data":       data.TestImagePNG,
+							"data":       imgB64,
 						},
 					},
 					map[string]any{
@@ -474,16 +419,41 @@ func (p *Prober) runImageOCR(targetBase, targetKey, model string) ([]CheckResult
 		return []CheckResult{{Name: "image_ocr", Pass: false, Detail: "parse failed"}}, nil
 	}
 
-	return []CheckResult{checkImageOCR(full)}, nil
+	return []CheckResult{checkImageOCR(full, ocrText)}, nil
 }
 
 // ════════════════════════════════════════════════════════════
-//  Phase 2g: pdf_extract
+//  Phase 2g: hidden_prompt
+//  Send a bare request with NO system prompt. If input_tokens is abnormally
+//  high (>15 for "hi"), the upstream has injected a hidden system prompt.
+// ════════════════════════════════════════════════════════════
+
+func (p *Prober) runHiddenPrompt(targetBase, targetKey, model string) ([]CheckResult, error) {
+	body := toJSON(map[string]any{
+		"model":      model,
+		"max_tokens": 1,
+		"messages":   []any{umsg("hi")},
+		// intentionally NO system, NO tools, NO metadata
+	})
+
+	j, err := p.sendReadJSON(targetBase, targetKey, body)
+	if err != nil {
+		return nil, err
+	}
+
+	return []CheckResult{checkHiddenPrompt(j)}, nil
+}
+
+// ════════════════════════════════════════════════════════════
+//  Phase 2i: pdf_extract
 //  cctest 07_pdf_extract: thinking=adaptive, 28 tools, full system,
 //  max_tokens=1024, stream=true, document + text content
 // ════════════════════════════════════════════════════════════
 
 func (p *Prober) runPDFExtract(targetBase, targetKey, model string) ([]CheckResult, error) {
+	pdfText := data.RandomOCRText(8)
+	pdfB64 := data.GenTestPDFBase64(pdfText)
+
 	body := toJSON(map[string]any{
 		"model":      model,
 		"max_tokens": 1024,
@@ -501,7 +471,7 @@ func (p *Prober) runPDFExtract(targetBase, targetKey, model string) ([]CheckResu
 						"source": map[string]any{
 							"type":       "base64",
 							"media_type": "application/pdf",
-							"data":       data.TestDocPDF,
+							"data":       pdfB64,
 						},
 					},
 					map[string]any{
@@ -525,314 +495,5 @@ func (p *Prober) runPDFExtract(targetBase, targetKey, model string) ([]CheckResu
 		return []CheckResult{{Name: "pdf_extract", Pass: false, Detail: "parse failed"}}, nil
 	}
 
-	return []CheckResult{checkPDFExtract(full)}, nil
-}
-
-// ════════════════════════════════════════════════════════════
-//  Request construction — Claude Code fingerprint
-// ════════════════════════════════════════════════════════════
-
-// billingBlock: cctest system[0] — billing header without cache_control
-func billingBlock() map[string]any {
-	cch := randomHex(3)
-	return map[string]any{
-		"type": "text",
-		"text": fmt.Sprintf("x-anthropic-billing-header: cc_version=2.1.107.3fe; cc_entrypoint=cli; cch=%s;", cch),
-	}
-}
-
-// fullSystem: cctest 3-block system prompt
-// [0] billing (no cache_control)
-// [1] "You are Claude Code..." (cache_control=ephemeral)
-// [2] Full instruction text (cache_control=ephemeral) — from embedded data
-func fullSystem() []any {
-	return []any{
-		billingBlock(),
-		map[string]any{
-			"type": "text",
-			"text": "You are Claude Code, Anthropic's official CLI for Claude.",
-			"cache_control": map[string]any{"type": "ephemeral"},
-		},
-		map[string]any{
-			"type":          "text",
-			"text":          data.SystemPrompt,
-			"cache_control": map[string]any{"type": "ephemeral"},
-		},
-	}
-}
-
-// genMetadata: cctest metadata with random device_id, account_uuid, session_id
-func genMetadata() map[string]any {
-	return map[string]any{
-		"user_id": fmt.Sprintf(
-			`{"device_id":"%s","account_uuid":"%s","session_id":"%s"}`,
-			randomHex(32), randomUUID(), randomUUID()),
-	}
-}
-
-// ════════════════════════════════════════════════════════════
-//  Network
-// ════════════════════════════════════════════════════════════
-
-func (p *Prober) send(targetBase, targetKey string, body []byte) (*http.Response, error) {
-	url := strings.TrimRight(targetBase, "/") + "/v1/messages"
-	req, err := http.NewRequest("POST", url, strings.NewReader(string(body)))
-	if err != nil {
-		return nil, fmt.Errorf("create: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", targetKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("anthropic-beta", "interleaved-thinking-2025-05-14")
-
-	resp, err := p.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("send: %w", err)
-	}
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return nil, fmt.Errorf("upstream %d: %s", resp.StatusCode, truncate(string(b), 200))
-	}
-	return resp, nil
-}
-
-// sendReadJSON sends a non-stream request and returns parsed JSON.
-func (p *Prober) sendReadJSON(targetBase, targetKey string, body []byte) (map[string]any, error) {
-	_, j, err := p.sendReadRaw(targetBase, targetKey, body)
-	return j, err
-}
-
-// sendReadRaw sends a non-stream request and returns both raw bytes and parsed JSON.
-func (p *Prober) sendReadRaw(targetBase, targetKey string, body []byte) ([]byte, map[string]any, error) {
-	resp, err := p.send(targetBase, targetKey, body)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("read: %w", err)
-	}
-	var j map[string]any
-	if err := json.Unmarshal(raw, &j); err != nil {
-		return raw, nil, fmt.Errorf("parse: %w", err)
-	}
-	return raw, j, nil
-}
-
-// ════════════════════════════════════════════════════════════
-//  SSE parsing
-// ════════════════════════════════════════════════════════════
-
-func readSSE(r io.Reader) (string, map[string]any, map[string]any) {
-	var raw strings.Builder
-	var msgStart, msgDelta map[string]any
-
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 1<<20), 10<<20)
-	for sc.Scan() {
-		line := sc.Text()
-		raw.WriteString(line)
-		raw.WriteByte('\n')
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		d := line[6:]
-		if d == "[DONE]" {
-			continue
-		}
-		var ev map[string]any
-		if json.Unmarshal([]byte(d), &ev) != nil {
-			continue
-		}
-		switch ev["type"] {
-		case "message_start":
-			if m, ok := ev["message"].(map[string]any); ok {
-				msgStart = m
-			}
-		case "message_delta":
-			if dd, ok := ev["delta"].(map[string]any); ok {
-				msgDelta = dd
-			}
-			if u, ok := ev["usage"].(map[string]any); ok {
-				if msgDelta == nil {
-					msgDelta = make(map[string]any)
-				}
-				msgDelta["usage"] = u
-			}
-		}
-	}
-	return raw.String(), msgStart, msgDelta
-}
-
-func merge(start, delta map[string]any, sse string) map[string]any {
-	if start == nil {
-		return nil
-	}
-	f := make(map[string]any)
-	for k, v := range start {
-		f[k] = v
-	}
-	if blocks := extractBlocks(sse); len(blocks) > 0 {
-		f["content"] = blocks
-	}
-	if delta != nil {
-		for _, k := range []string{"stop_reason", "stop_sequence", "stop_details"} {
-			if v, ok := delta[k]; ok {
-				f[k] = v
-			}
-		}
-		if du, ok := delta["usage"].(map[string]any); ok {
-			if bu, ok := f["usage"].(map[string]any); ok {
-				for k, v := range du {
-					bu[k] = v
-				}
-			} else {
-				f["usage"] = du
-			}
-		}
-	}
-	return f
-}
-
-func extractBlocks(sse string) []any {
-	var blocks []map[string]any
-	acc := map[int]map[string]string{}
-
-	for _, line := range strings.Split(sse, "\n") {
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		var ev map[string]any
-		if json.Unmarshal([]byte(line[6:]), &ev) != nil {
-			continue
-		}
-		switch ev["type"] {
-		case "content_block_start":
-			idx := iVal(ev, "index")
-			if cb, ok := ev["content_block"].(map[string]any); ok {
-				for len(blocks) <= idx {
-					blocks = append(blocks, nil)
-				}
-				blocks[idx] = cb
-				acc[idx] = map[string]string{}
-			}
-		case "content_block_delta":
-			idx := iVal(ev, "index")
-			d, _ := ev["delta"].(map[string]any)
-			if d == nil {
-				continue
-			}
-			if acc[idx] == nil {
-				acc[idx] = map[string]string{}
-			}
-			switch d["type"] {
-			case "thinking_delta":
-				if v, ok := d["thinking"].(string); ok {
-					acc[idx]["thinking"] += v
-				}
-			case "text_delta":
-				if v, ok := d["text"].(string); ok {
-					acc[idx]["text"] += v
-				}
-			case "signature_delta":
-				if v, ok := d["signature"].(string); ok {
-					acc[idx]["signature"] += v
-				}
-			case "input_json_delta":
-				if v, ok := d["partial_json"].(string); ok {
-					acc[idx]["input_json"] += v
-				}
-			}
-		}
-	}
-
-	for i, b := range blocks {
-		if b == nil || acc[i] == nil {
-			continue
-		}
-		switch b["type"] {
-		case "thinking":
-			if v := acc[i]["thinking"]; v != "" {
-				b["thinking"] = v
-			}
-			if v := acc[i]["signature"]; v != "" {
-				b["signature"] = v
-			}
-		case "text":
-			if v := acc[i]["text"]; v != "" {
-				b["text"] = v
-			}
-		case "tool_use", "server_tool_use":
-			if v := acc[i]["input_json"]; v != "" {
-				var p any
-				if json.Unmarshal([]byte(v), &p) == nil {
-					b["input"] = p
-				}
-			}
-		}
-	}
-
-	out := make([]any, 0, len(blocks))
-	for _, b := range blocks {
-		if b != nil {
-			out = append(out, b)
-		}
-	}
-	return out
-}
-
-// ════════════════════════════════════════════════════════════
-//  Utilities
-// ════════════════════════════════════════════════════════════
-
-func batchFail(names []string) []CheckResult {
-	fixMap := map[string]string{
-		"id_format": "IDRewrite", "model_name": "BodyRewrite", "signature": "SignatureRewrite",
-		"thinking_present": "ThinkingInject", "usage_structure": "BodyRewrite", "field_order": "BodyRewrite",
-		"inference_geo": "ForceGeo", "stop_details": "BodyRewrite", "stop_details_structure": "BodyRewrite",
-		"stop_reason": "BodyRewrite", "thinking_order": "ThinkingInject",
-		"thinking_display_omitted": "ThinkingInject", "tag_replay": "", "cache_fake": "CacheFake",
-		"message_start_usage": "BodyRewrite",
-	}
-	out := make([]CheckResult, 0, len(names))
-	for _, n := range names {
-		out = append(out, CheckResult{Name: n, Pass: false, Detail: "could not parse SSE response", Fix: fixMap[n]})
-	}
-	return out
-}
-
-func iVal(m map[string]any, key string) int {
-	switch v := m[key].(type) {
-	case float64:
-		return int(v)
-	case json.Number:
-		n, _ := v.Int64()
-		return int(n)
-	}
-	return 0
-}
-
-func umsg(content string) map[string]any {
-	return map[string]any{"role": "user", "content": content}
-}
-
-func toJSON(v any) []byte {
-	b, _ := json.Marshal(v)
-	return b
-}
-
-func randomHex(n int) string {
-	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-func randomUUID() string {
-	b := make([]byte, 16)
-	rand.Read(b)
-	b[6] = (b[6] & 0x0F) | 0x40
-	b[8] = (b[8] & 0x3F) | 0x80
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	return []CheckResult{checkPDFExtract(full, pdfText)}, nil
 }

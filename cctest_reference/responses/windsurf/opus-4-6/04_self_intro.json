@@ -1,0 +1,42 @@
+{
+  "headers": {
+    "_status": "HTTP/2 200",
+    "server": "nginx/1.24.0 (Ubuntu)",
+    "date": "Sun, 03 May 2026 12:42:17 GMT",
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    "x-new-api-version": "v0.13.0",
+    "x-oneapi-request-id": "202605031242129259968528268d9d6DVFijn6Z",
+    "x-frame-options": "SAMEORIGIN",
+    "x-content-type-options": "nosniff",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload"
+  },
+  "body": {
+    "content": [
+      {
+        "signature": "EsICClkIDRgCKkA0yFyaj3XYupTKfrkgLXPIiI8ODU7NfWN/GGVONzHP3DZoqTjx0i3kWNsJK8kC/umwF4Vpexb/wuPWfgcBhtxxMg9jbGF1ZGUtb3B1cy00LTY4ABIMfb5h40t3MPTA0bitGgxQ+zv1ntvJpiqP5EwiMKVxvkaxFeYe/eX9ecsOdWVGeFfYVn+udRWsTEhyG5ca6I6meGbd7gF8zXLMC+qrbSqWAZPl3EF+ENbGdZ/vhcPTMryUFGUzr+1zm+GXWPRQl2rgg7uFbvt8LqN04YU5sDDSHIDMgbFYVZyMVPrdE26n7QOAPrmEVazAo8TFoOWHrl5zIfrijipZ0P95i0wp95FswI65ftSzRYM2Htv3cdWtbq12bUthb55lDsVK1oIq1e1/dEw+Uz6s5OD8GwXNRwhAeOuSFNgfoRgB",
+        "thinking": "The user is asking me to introduce myself in one sentence, including a title and description. This is a simple conversational request.",
+        "type": "thinking"
+      },
+      {
+        "text": "**Claude Code** — 我是一个运行在终端中的 AI 编程助手，能够帮你阅读、搜索、编辑代码，执行命令，并完成各种软件工程任务。",
+        "type": "text"
+      }
+    ],
+    "id": "msg_1777812137252",
+    "model": "claude-opus-4-6",
+    "role": "assistant",
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "type": "message",
+    "usage": {
+      "cache_creation_input_tokens": 339,
+      "cache_read_input_tokens": 23449,
+      "input_tokens": 3,
+      "output_tokens": 106,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 339
+      }
+    }
+  }
+}

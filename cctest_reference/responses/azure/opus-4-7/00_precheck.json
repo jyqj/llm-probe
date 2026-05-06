@@ -1,0 +1,48 @@
+{
+  "headers": {
+    "_status": "HTTP/1.1 200 OK",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "Content-Type": "text/event-stream",
+    "Date": "Sat, 02 May 2026 15:38:26 GMT",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Accel-Buffering": "no",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-Ratelimit-Limit-Requests": "450",
+    "X-Ratelimit-Limit-Tokens": "450000",
+    "X-Ratelimit-Remaining-Requests": "449",
+    "X-Ratelimit-Remaining-Tokens": "94379",
+    "X-Ratelimit-Reset-Requests": "133",
+    "X-Ratelimit-Reset-Tokens": "47416",
+    "X-Request-Id": "33b47e9c-209f-422b-8604-2eda236ed5fe",
+    "Transfer-Encoding": "chunked"
+  },
+  "body": {
+    "model": "claude-opus-4-7",
+    "id": "msg_01LaF4Nrrmsqpkegw7KeTWtq",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "ok"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 14,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 6,
+      "service_tier": "standard",
+      "inference_geo": "not_available"
+    }
+  }
+}

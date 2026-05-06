@@ -5,80 +5,71 @@ import (
 	"strings"
 	"time"
 
-	"bedrock-gateway/internal/config"
+	"detector-service/internal/remediation"
 )
 
 // CheckResult represents the outcome of a single fingerprint check.
 type CheckResult struct {
-	Name   string `json:"name"`
-	Pass   bool   `json:"pass"`
-	Detail string `json:"detail"`
-	Fix    string `json:"fix,omitempty"` // DisguiseConfig field to enable if failed
+	Name   string          `json:"name"`
+	Pass   bool            `json:"pass"`
+	Detail string          `json:"detail"`
+	Fix    remediation.Fix `json:"fix,omitempty"` // neutral remediation item to enable if failed
 }
 
 // ProbeReport is the full result of a probe suite run.
 type ProbeReport struct {
-	Target      string               `json:"target"`
-	Model       string               `json:"model"`
-	Timestamp   time.Time            `json:"timestamp"`
-	ElapsedMs   int64                `json:"elapsed_ms"`
-	Checks      []CheckResult        `json:"checks"`
-	Recommended config.DisguiseConfig `json:"recommended"`
-	Summary     string               `json:"summary"`
-	Score       *ScoreReport         `json:"score,omitempty"`
+	Target      string                     `json:"target"`
+	Model       string                     `json:"model"`
+	Timestamp   time.Time                  `json:"timestamp"`
+	ElapsedMs   int64                      `json:"elapsed_ms"`
+	Checks      []CheckResult              `json:"checks"`
+	Recommended remediation.Recommendation `json:"recommended"`
+	Summary     string                     `json:"summary"`
+	Score       *ScoreReport               `json:"score,omitempty"`
 }
 
-// RecommendConfig builds a minimal DisguiseConfig that only enables
-// the features whose corresponding checks failed.
-func RecommendConfig(checks []CheckResult) config.DisguiseConfig {
-	cfg := config.DisguiseConfig{Enabled: true}
+// RecommendFixes builds a minimal neutral recommendation from failed checks.
+func RecommendFixes(checks []CheckResult) remediation.Recommendation {
+	rec := remediation.Recommendation{Enabled: true}
+	seen := map[remediation.Fix]bool{}
 	for _, c := range checks {
-		if c.Pass || c.Fix == "" {
+		if c.Pass {
 			continue
 		}
-		switch c.Fix {
-		case "IDRewrite":
-			cfg.IDRewrite = true
-		case "SignatureRewrite":
-			cfg.SignatureRewrite = true
-		case "BodyRewrite":
-			cfg.BodyRewrite = true
-		case "HeadersFake":
-			cfg.HeadersFake = true
-		case "StripDone":
-			cfg.StripDone = true
-		case "StripContainer":
-			cfg.StripContainer = true
-		case "StripBedrock":
-			cfg.StripBedrock = true
-		case "ForceGeo":
-			cfg.ForceGeo = true
-		case "ThinkingInject":
-			cfg.ThinkingInject = true
-		case "SmallProbeZero":
-			cfg.SmallProbeZero = true
-		case "CacheFake":
-			cfg.CacheFake = true
+		fix := c.Fix
+		if fix == "" {
+			fix = defaultFixForCheck(c.Name)
 		}
+		if fix == "" || seen[fix] {
+			continue
+		}
+		rec.Fixes = append(rec.Fixes, fix)
+		seen[fix] = true
 	}
-	return cfg
+	return rec
 }
 
 // BuildSummary generates a human-readable summary from check results.
 func BuildSummary(checks []CheckResult) string {
 	passed, total := 0, len(checks)
 	var fixes []string
-	seen := map[string]bool{}
+	seen := map[remediation.Fix]bool{}
 	for _, c := range checks {
 		if c.Pass {
 			passed++
-		} else if c.Fix != "" && !seen[c.Fix] {
-			fixes = append(fixes, c.Fix)
-			seen[c.Fix] = true
+			continue
+		}
+		fix := c.Fix
+		if fix == "" {
+			fix = defaultFixForCheck(c.Name)
+		}
+		if fix != "" && !seen[fix] {
+			fixes = append(fixes, string(fix))
+			seen[fix] = true
 		}
 	}
 	if len(fixes) == 0 {
-		return fmt.Sprintf("%d/%d checks passed. No disguise needed.", passed, total)
+		return fmt.Sprintf("%d/%d checks passed. No issues detected.", passed, total)
 	}
 	return fmt.Sprintf("%d/%d checks passed. Recommend enabling: %s",
 		passed, total, strings.Join(fixes, ", "))

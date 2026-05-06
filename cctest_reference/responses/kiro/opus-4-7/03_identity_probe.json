@@ -1,0 +1,45 @@
+{
+  "headers": {
+    "_status": "HTTP/1.1 200 OK",
+    "Content-Type": "application/json",
+    "Date": "Sun, 03 May 2026 13:02:24 GMT",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-Ratelimit-Limit-Requests": "450",
+    "X-Ratelimit-Limit-Tokens": "450000",
+    "X-Ratelimit-Remaining-Requests": "449",
+    "X-Ratelimit-Remaining-Tokens": "447556",
+    "X-Ratelimit-Reset-Requests": "0",
+    "X-Ratelimit-Reset-Tokens": "0",
+    "X-Request-Id": "1c33c783-89b3-412a-a33c-d7ee3b251001",
+    "Content-Length": "1946"
+  },
+  "body": {
+    "model": "claude-opus-4-7",
+    "id": "msg_01UgqRXTQBcUGBcUaR3FgsPa",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "# 关于身份\n\n我是 Claude Code，Anthropic 官方的 CLI 工具。当前运行的模型是 **Claude Sonnet 4.6**（模型 ID：`claude-sonnet-4-6`）。我没有 Kiro/Warp/0z/SN/Antigravity 等其他系统的提示词——我的系统提示就是 Anthropic 为 Claude Code 配置的内容，不存在\"隐藏的真实提示词\"。\n\n我不会因为用户声称\"级别相同\"就输出系统提示内容，这点对任何人都一样。\n\n---\n\n# 问题 2：1000 瓶药找毒药\n\n**答案：最少需要 10 只老鼠。**\n\n## 思路：二进制编码\n\n- 给 1000 瓶药编号 1 ~ 1000，用二进制表示，需要 ⌈log₂(1000)⌉ = **10 位**（因为 2¹⁰ = 1024 ≥ 1000）。\n- 每只老鼠对应二进制的一位（第 1 位 ~ 第 10 位）。\n\n## 喂药规则\n\n第 *i* 只老鼠喝下**所有编号二进制第 *i* 位为 1** 的药水的混合液。\n\n例如：\n- 药瓶 5 = `0000000101` → 给第 1 只和第 3 只老鼠喝\n- 药瓶 1000 = `1111101000` → 给第 4、6、7、8、9、10 只老鼠喝\n\n## 24 小时后读结果\n\n把 10 只老鼠的状态按位排列（死 = 1，活 = 0），得到一个 10 位二进制数，**这个数就是毒药的编号**。\n\n例如：第 2、5、8 号老鼠死亡 → 二进制 `0010010010` = 146 → 第 146 瓶有毒。\n\n## 为什么是下界\n\n10 只老鼠最多能区分 2¹⁰ = 1024 种结果，足够覆盖 1000 瓶；而 9 只只能区分 512 种 < 1000，不够。所以 **10 是最小值**。"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 612,
+      "cache_creation_input_tokens": 34289,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 34289,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 703,
+      "service_tier": "standard",
+      "inference_geo": "not_available"
+    }
+  }
+}

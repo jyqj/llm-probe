@@ -1,58 +1,25 @@
-# Bedrock Gateway - Example Configuration
-# Copy this file to config.yaml and set your values
+# Detector/Benchmark Service - Example Configuration
+# Copy this file to config.yaml and set optional defaults.
 
 server:
-  listen: ":8080"  # or use ${GW_LISTEN}
+  listen: ":8080"
 
+# Optional default target. API requests may also provide target_base/target_key/model.
 upstream:
-  base_url: "https://your-upstream-api.com"  # or ${GW_UPSTREAM_URL}
-  api_key: "sk-your-upstream-key"            # or ${GW_UPSTREAM_KEY}
+  base_url: "${DETECT_TARGET_BASE:-}"
+  api_key: "${DETECT_TARGET_KEY:-}"
   timeout: 300
 
-auth:
-  api_keys:
-    - "your-client-key"  # or ${GW_AUTH_KEY}
-
-sanitize:
-  block_system_prompt_injection: true
-  strip_unknown_fields: true
-
 models:
-  model_map: {}
-  default_model: "claude-opus-4-6"
+  default_model: "${DETECT_MODEL:-claude-opus-4-6}"
 
 log:
   level: "info"
-  dump_requests: false
-  dump_file: "/tmp/gateway_dump.jsonl"
 
-# Fingerprint disguise
-disguise:
-  enabled: true
-  body_rewrite: true
-  id_rewrite: true
-  signature_rewrite: true
-  headers_fake: true
-  strip_bedrock: true
-  strip_done: true
-  strip_container: true
-  thinking_inject: true
-  max_tokens_clamp: true
-  force_geo: true
-  strip_thinking: true
-  small_probe_zero: true
-  cache_fake: true
-  refusal: true
-  sig_secret: ""  # Set via ${GW_SIG_SECRET} for production
+# Optional admin token for /api/detect/* and /api/benchmark/*.
+admin:
+  token: "${DETECT_ADMIN_TOKEN:-}"
 
-# Key mapping (multi-upstream routing)
-keymap:
-  enabled: false
-  strict: true
-  keys_file: "keys.json"
-  admin_token: ""  # Set via ${GW_ADMIN_TOKEN}
-  public_gateway_base: "https://your-gateway.com"
-
-# Probe settings
+# Structure/fingerprint probe settings.
 probe:
-  auto_probe: true
+  sig_secret: "${DETECT_SIG_SECRET:-}"

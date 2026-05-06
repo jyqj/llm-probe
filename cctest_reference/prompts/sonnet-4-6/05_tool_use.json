@@ -1,0 +1,54 @@
+{
+  "model": "claude-sonnet-4-6",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Perform a web search for the query: latest AI news today",
+          "cache_control": {
+            "type": "ephemeral"
+          }
+        }
+      ]
+    }
+  ],
+  "system": [
+    {
+      "type": "text",
+      "text": "x-anthropic-billing-header: cc_version=2.1.107.3fe; cc_entrypoint=cli; cch=249e9;"
+    },
+    {
+      "type": "text",
+      "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+      "cache_control": {
+        "type": "ephemeral"
+      }
+    },
+    {
+      "type": "text",
+      "text": "You are an assistant for performing a web search tool use",
+      "cache_control": {
+        "type": "ephemeral"
+      }
+    }
+  ],
+  "tools": [
+    {
+      "type": "web_search_20250305",
+      "name": "web_search",
+      "max_uses": 1
+    }
+  ],
+  "tool_choice": {
+    "type": "tool",
+    "name": "web_search"
+  },
+  "metadata": {
+    "user_id": "{\"device_id\":\"a5b3c597706f185a7bc9a01f9c490eaab03a7978af869321282dcd5623abbe59\",\"account_uuid\":\"8f256816-1c1a-42ca-aafd-a258b4c7b868\",\"session_id\":\"f8f649e8-5cf6-4184-a3ee-d5a66f9304a8\"}"
+  },
+  "max_tokens": 16000,
+  "temperature": 1,
+  "stream": true
+}

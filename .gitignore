@@ -1,5 +1,5 @@
 # Binaries
-bedrock-gateway
+detector-service
 *.exe
 *.exe~
 *.dll
@@ -35,9 +35,12 @@ keys.json
 /tmp/
 
 # Captures
-gateway_captures/
+detector_captures/
 
 # Environment files
 .env
 .env.*
 !.env.example
+
+# Large benchmark datasets (may trigger GitHub secret scanning false positives)
+internal/benchmark/sweatlas/data/*.csv

@@ -1,0 +1,48 @@
+{
+  "headers": {
+    "_status": "HTTP/1.1 200 OK",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "Content-Type": "text/event-stream",
+    "Date": "Sun, 03 May 2026 13:02:18 GMT",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Accel-Buffering": "no",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-Ratelimit-Limit-Requests": "450",
+    "X-Ratelimit-Limit-Tokens": "450000",
+    "X-Ratelimit-Remaining-Requests": "449",
+    "X-Ratelimit-Remaining-Tokens": "447555",
+    "X-Ratelimit-Reset-Requests": "0",
+    "X-Ratelimit-Reset-Tokens": "0",
+    "X-Request-Id": "9d05844b-50ad-43ea-afd4-f20a201cca65",
+    "Transfer-Encoding": "chunked"
+  },
+  "body": {
+    "model": "claude-opus-4-7",
+    "id": "msg_018Fm7rig5jvXXQ3rPo3g7fv",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"title\":\"关于我\",\"desc\":\"我是 Claude Code，Anthropic 官方推出的命令行 AI 编程助手，能够帮助你阅读代码、编辑文件、执行命令并完成各类软件工程任务。\"}"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 457,
+      "cache_creation_input_tokens": 34497,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 34497,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 85,
+      "service_tier": "standard",
+      "inference_geo": "not_available"
+    }
+  }
+}

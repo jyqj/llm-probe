@@ -1,0 +1,19 @@
+{
+  "headers": {
+    "_status": "HTTP/1.1 503 Service Unavailable",
+    "Content-Type": "application/json; charset=utf-8",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-Request-Id": "7dd4dd1a-62f3-43f7-a8cd-bd4de0c30516",
+    "Date": "Sun, 03 May 2026 13:02:42 GMT",
+    "Content-Length": "102"
+  },
+  "body": {
+    "error": {
+      "message": "No available accounts: no available accounts",
+      "type": "api_error"
+    },
+    "type": "error"
+  }
+}

@@ -7,102 +7,53 @@ import (
 )
 
 func TestLoad(t *testing.T) {
-	// Create temp config file
 	content := `
 server:
   listen: ":9999"
 upstream:
-  base_url: "https://test.example.com"
+  base_url: "https://test.example.com/"
   api_key: "sk-test-key"
   timeout: 60
-auth:
-  api_keys:
-    - "client-key-1"
 models:
   default_model: "claude-sonnet-4-6"
 log:
   level: "debug"
-disguise:
-  enabled: true
-  body_rewrite: true
+admin:
+  token: "adm"
+probe:
+  sig_secret: "sig"
 `
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(configPath)
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
+	cfg := loadTempConfig(t, content)
 
 	if cfg.Server.Listen != ":9999" {
 		t.Errorf("listen = %s, want :9999", cfg.Server.Listen)
 	}
 	if cfg.Upstream.BaseURL != "https://test.example.com" {
-		t.Errorf("base_url = %s, want https://test.example.com", cfg.Upstream.BaseURL)
+		t.Errorf("base_url = %s, want trimmed https://test.example.com", cfg.Upstream.BaseURL)
 	}
 	if cfg.Upstream.Timeout != 60 {
 		t.Errorf("timeout = %d, want 60", cfg.Upstream.Timeout)
 	}
-	if !cfg.Disguise.Enabled {
-		t.Error("disguise.enabled should be true")
+	if cfg.Models.DefaultModel != "claude-sonnet-4-6" {
+		t.Errorf("default_model = %s, want claude-sonnet-4-6", cfg.Models.DefaultModel)
+	}
+	if cfg.Admin.Token != "adm" || cfg.Probe.SigSecret != "sig" {
+		t.Errorf("admin/probe config not loaded: %+v", cfg)
 	}
 }
 
-func TestLoadWithEnvVar(t *testing.T) {
-	os.Setenv("TEST_API_KEY", "sk-from-env")
-	defer os.Unsetenv("TEST_API_KEY")
-
-	content := `
+func TestLoadWithEnvVarDefault(t *testing.T) {
+	t.Setenv("TEST_API_KEY", "sk-from-env")
+	cfg := loadTempConfig(t, `
 upstream:
-  base_url: "https://test.example.com"
+  base_url: "${TEST_BASE:-https://default.example.com}"
   api_key: "${TEST_API_KEY}"
-auth:
-  api_keys:
-    - "test"
-`
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
+`)
+	if cfg.Upstream.BaseURL != "https://default.example.com" {
+		t.Errorf("base_url = %s", cfg.Upstream.BaseURL)
 	}
-
-	cfg, err := Load(configPath)
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
 	if cfg.Upstream.APIKey != "sk-from-env" {
 		t.Errorf("api_key = %s, want sk-from-env", cfg.Upstream.APIKey)
-	}
-}
-
-func TestHasAPIKey(t *testing.T) {
-	cfg := &Config{
-		Auth: AuthConfig{
-			APIKeys: []string{"key1", "key2", "key3"},
-		},
-	}
-
-	tests := []struct {
-		key  string
-		want bool
-	}{
-		{"key1", true},
-		{"key2", true},
-		{"key3", true},
-		{"key4", false},
-		{"", false},
-		{" key1 ", true}, // trimmed
-	}
-
-	for _, tc := range tests {
-		got := cfg.HasAPIKey(tc.key)
-		if got != tc.want {
-			t.Errorf("HasAPIKey(%q) = %v, want %v", tc.key, got, tc.want)
-		}
 	}
 }
 
@@ -113,46 +64,24 @@ func TestValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid config",
-			cfg: Config{
-				Upstream: UpstreamConfig{BaseURL: "https://test.com", APIKey: "sk-test"},
-				Auth:     AuthConfig{APIKeys: []string{"key1"}},
-			},
-			wantErr: false,
+			name: "valid default target",
+			cfg:  Config{Upstream: UpstreamConfig{BaseURL: "https://test.com", APIKey: "sk-test"}},
 		},
 		{
-			name: "missing upstream url",
-			cfg: Config{
-				Upstream: UpstreamConfig{APIKey: "sk-test"},
-				Auth:     AuthConfig{APIKeys: []string{"key1"}},
-			},
+			name:    "missing upstream url",
+			cfg:     Config{Upstream: UpstreamConfig{APIKey: "sk-test"}},
 			wantErr: true,
 		},
 		{
-			name: "missing upstream key",
-			cfg: Config{
-				Upstream: UpstreamConfig{BaseURL: "https://test.com"},
-				Auth:     AuthConfig{APIKeys: []string{"key1"}},
-			},
+			name:    "missing upstream key",
+			cfg:     Config{Upstream: UpstreamConfig{BaseURL: "https://test.com"}},
 			wantErr: true,
 		},
 		{
-			name: "missing auth keys (no keymap)",
-			cfg: Config{
-				Upstream: UpstreamConfig{BaseURL: "https://test.com", APIKey: "sk-test"},
-			},
-			wantErr: true,
-		},
-		{
-			name: "no auth keys but keymap enabled",
-			cfg: Config{
-				Upstream: UpstreamConfig{BaseURL: "https://test.com", APIKey: "sk-test"},
-				KeyMap:   KeyMapConfig{Enabled: true},
-			},
-			wantErr: false,
+			name: "no upstream defaults is valid for request-supplied targets",
+			cfg:  Config{},
 		},
 	}
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.cfg.validate()
@@ -161,4 +90,18 @@ func TestValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func loadTempConfig(t *testing.T, content string) *Config {
+	t.Helper()
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	return cfg
 }
