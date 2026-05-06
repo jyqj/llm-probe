@@ -752,30 +752,22 @@ async function deleteChannelHistory(id) {
 }
 
 /* ─── Benchmark History ─── */
-let benchMainEls = null;
 function showBenchSub(sub) {
+  const mainEl = document.getElementById('benchSubMain');
   const historyEl = document.getElementById('benchSubHistory');
-  if (!benchMainEls) {
-    const main = document.querySelector('[data-app-pane="bench"] .main');
-    benchMainEls = Array.from(main.children).filter(el => el.id !== 'benchSubHistory');
-  }
   if (sub === 'history') {
-    benchMainEls.forEach(el => el.style.display = 'none');
+    mainEl.classList.add('hidden');
     historyEl.classList.remove('hidden');
     loadBenchHistory();
   } else {
-    benchMainEls.forEach(el => el.style.display = '');
+    mainEl.classList.remove('hidden');
     historyEl.classList.add('hidden');
   }
   // Update sidebar active state
   const links = document.querySelectorAll('[data-app-pane="bench"] .side-section:first-child .side-link');
   links.forEach(link => {
     const text = link.textContent.trim();
-    if (sub === 'history') {
-      link.classList.toggle('active', text.includes('历史'));
-    } else {
-      link.classList.toggle('active', text.includes('本次'));
-    }
+    link.classList.toggle('active', sub === 'history' ? text.includes('历史') : text.includes('本次'));
   });
 }
 
