@@ -767,6 +767,16 @@ function showBenchSub(sub) {
     benchMainEls.forEach(el => el.style.display = '');
     historyEl.classList.add('hidden');
   }
+  // Update sidebar active state
+  const links = document.querySelectorAll('[data-app-pane="bench"] .side-section:first-child .side-link');
+  links.forEach(link => {
+    const text = link.textContent.trim();
+    if (sub === 'history') {
+      link.classList.toggle('active', text.includes('历史'));
+    } else {
+      link.classList.toggle('active', text.includes('本次'));
+    }
+  });
 }
 
 async function loadBenchHistory() {
