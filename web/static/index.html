@@ -269,6 +269,26 @@
       <p class="page-sub">在多个公开 benchmark 上对该渠道运行评测,聚合得分、分语言/类别、查看每一题的 prompt 与回答。</p>
     </div>
 
+    <!-- Target config (benchmark) -->
+    <div class="target-bar">
+      <div class="target-field" style="flex:2">
+        <div class="target-label">Target Base URL</div>
+        <input id="benchTargetBase" class="input mono" placeholder="https://api.example.com/v1/messages">
+      </div>
+      <div class="target-field" style="flex:1.5">
+        <div class="target-label">API Key</div>
+        <input id="benchTargetKey" class="input mono" type="password" placeholder="sk-...">
+      </div>
+      <div class="target-field" style="flex:0.8">
+        <div class="target-label">Model</div>
+        <select id="benchModel" class="input mono">
+          <option value="claude-opus-4-6">claude-opus-4-6</option>
+          <option value="claude-opus-4-7">claude-opus-4-7</option>
+          <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+        </select>
+      </div>
+    </div>
+
     <!-- Upload dialog (hidden by default) -->
     <div id="uploadCard" class="upload-dialog hidden">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -355,9 +375,9 @@
           </select>
         </div>
         <div class="runcfg-cell">
-          <div class="k">模型</div>
+          <div class="k">模型覆盖</div>
           <div style="position:relative">
-            <input id="runModel" list="runModelList" class="input mono" placeholder="使用渠道测试模型" value="">
+            <input id="runModel" list="runModelList" class="input mono" placeholder="留空=使用上方模型" value="">
             <datalist id="runModelList">
               <option value="claude-opus-4-6">
               <option value="claude-opus-4-7">

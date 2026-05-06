@@ -502,10 +502,18 @@ function updateIntelligencePreview() {
   el2.textContent = text;
 }
 
+function benchTargetPayload() {
+  return {
+    target_base: document.getElementById('benchTargetBase').value.trim(),
+    target_key: document.getElementById('benchTargetKey').value.trim(),
+    model: document.getElementById('benchModel').value.trim()
+  };
+}
+
 function buildRunPayload() {
   const scope = document.getElementById('runScope').value;
   const p = {
-    ...targetPayload(),
+    ...benchTargetPayload(),
     concurrency: parseInt(document.getElementById('runConcurrency').value) || 5,
     thinking: document.getElementById('runThinking').value === 'on',
   };
