@@ -79,7 +79,7 @@ func main() {
 		Delete:     persist.DeleteChannelHistory,
 		UpdateName: persist.UpdateChannelHistoryName,
 		Load:       persist.LoadAllChannelHistory,
-	})
+	}, cfg.Storage.MaxHistory)
 	runner := intelligence.NewRunner(nil)
 
 	// ── Monitor + Alert ──
@@ -145,7 +145,7 @@ func main() {
 		Save:   persist.SaveIntelligenceHistory,
 		Delete: persist.DeleteIntelligenceHistory,
 		Load:   persist.LoadAllIntelligenceHistory,
-	})
+	}, cfg.Storage.MaxHistory)
 
 	mux := http.NewServeMux()
 	api := api.New(cfg, logger, channelStore, registry, runner, intelligenceHistory)

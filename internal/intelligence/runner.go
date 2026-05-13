@@ -54,6 +54,13 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 		return report, nil
 	}
 
+	if onEvent != nil {
+		onEvent(StreamEvent{
+			Type:  "start",
+			Total: total,
+		})
+	}
+
 	results := make([]TaskRunResult, total)
 	var completed int64
 	var errorCount int64
@@ -69,7 +76,9 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 
 			res := TaskRunResult{Index: idx, Task: t.Summary(false), Rubric: t.Rubric}
 			oneStarted := time.Now()
-			answer, err := r.ask(ctx, req, t.Prompt)
+			taskCtx, taskCancel := context.WithTimeout(ctx, 3*time.Minute)
+			answer, err := r.ask(taskCtx, req, t.Prompt)
+			taskCancel()
 			res.ElapsedMs = time.Since(oneStarted).Milliseconds()
 			if err != nil {
 				res.Error = err.Error()

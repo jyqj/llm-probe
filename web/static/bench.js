@@ -479,6 +479,11 @@ async function runBatchSubStream(batchId, effort, subId, payload) {
 function handleBatchSubSSE(batchId, effort, ev) {
   const batch = State.liveRuns[batchId]; if (!batch) return;
   const sub = batch.subRuns[effort]; if (!sub) return;
+  if (ev.type === 'start') {
+    sub.totalTasks = ev.total || sub.totalTasks;
+    maybeRerenderBench(batchId);
+    return;
+  }
   if (ev.type === 'progress') {
     sub.totalTasks = ev.total || sub.totalTasks;
     sub.completedTasks = ev.completed || sub.completedTasks;
@@ -530,24 +535,37 @@ async function runBenchStream(runId, payload) {
   }
   const reader = resp.body.getReader(); const decoder = new TextDecoder();
   let buf = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split('\n'); buf = lines.pop();
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      try { handleBenchSSE(runId, JSON.parse(line.slice(6))); } catch {}
+  const watchdog = createSSEWatchdog(45000, () => {
+    if (run.state === 'running') toast('SSE 连接可能已断开 · 服务端仍在执行', 'warn');
+  });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      watchdog.reset();
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try { handleBenchSSE(runId, JSON.parse(line.slice(6))); } catch {}
+      }
     }
-  }
-  if (buf.startsWith('data: ')) {
-    try { handleBenchSSE(runId, JSON.parse(buf.slice(6))); } catch {}
+    if (buf.startsWith('data: ')) {
+      try { handleBenchSSE(runId, JSON.parse(buf.slice(6))); } catch {}
+    }
+  } finally {
+    watchdog.stop();
   }
 }
 
 function handleBenchSSE(runId, ev) {
   const run = State.liveRuns[runId];
   if (!run) return;
+  if (ev.type === 'start') {
+    run.totalTasks = ev.total || run.totalTasks;
+    maybeRerenderBench(runId);
+    return;
+  }
   if (ev.type === 'progress') {
     run.totalTasks = ev.total || run.totalTasks;
     run.completedTasks = ev.completed || run.completedTasks;
@@ -563,9 +581,10 @@ function handleBenchSSE(runId, ev) {
       run.completedTasks = ev.report.task_completed;
       run.errorTasks = ev.report.task_errors;
     }
+    toast('Benchmark 完成', 'good');
     maybeRerenderBench(runId);
   } else if (ev.type === 'error') {
-    run.state = 'error'; run.error = ev.error;
+    run.state = 'error'; run.error = ev.error_msg || ev.error;
     maybeRerenderBench(runId);
   }
 }
@@ -630,6 +649,7 @@ function renderBenchRunPage(runId) {
   const crumbs = [{ label: 'Benchmark', href: '#/bench' }];
   if (run.historical) crumbs.push({ label: '历史', href: '#/bench/history' });
   crumbs.push({ cur: run.dataset || 'run' });
+  if (run.state !== 'running') crumbs.push({ cur: '报告' });
   const actions = el('div', { class: 'crumb-actions' });
   if (run.state === 'running') {
     actions.appendChild(btn('取消', { icon: 'stop', size: 'sm', danger: true, onClick: () => cancelBenchRun(runId) }));
@@ -645,14 +665,15 @@ function renderBenchRunPage(runId) {
   // status bar
   v.appendChild(renderBenchHeader(run, runId));
 
-  // progress strip (running only)
-  if (run.state === 'running') v.appendChild(renderBenchProgressStrip(run));
-
-  // task stats
-  v.appendChild(renderBenchStats(run));
-
-  // results list
-  v.appendChild(renderBenchResultsList(run));
+  if (run.state === 'running') {
+    v.appendChild(renderTaskGrid(run));
+    v.appendChild(renderBenchResultsList(run));
+  } else {
+    v.appendChild(renderBenchReportBanner(run));
+    v.appendChild(renderBenchStats(run));
+    v.appendChild(renderBenchCategoryBreakdown(run));
+    v.appendChild(renderBenchResultsList(run));
+  }
 }
 
 function renderBenchHeader(run, runId) {
@@ -732,6 +753,190 @@ function renderBenchStats(run) {
   );
 }
 
+/* ─── Task grid — visual progress for running state ─── */
+function renderTaskGrid(run) {
+  const total = run.totalTasks || 0;
+  const done = run.completedTasks || 0;
+  const errors = run.errorTasks || 0;
+  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+
+  const resultsByIndex = {};
+  run.results.forEach(r => { resultsByIndex[r.index] = r; });
+
+  const passCount = run.results.filter(r => !r.error && r.pass !== false).length;
+  const failCount = run.results.filter(r => !r.error && r.pass === false).length;
+  const passRate = done > 0 ? Math.round(passCount / Math.max(passCount + failCount, 1) * 1000) / 10 : 0;
+  const avgMs = run.results.length > 0
+    ? Math.round(run.results.reduce((s, r) => s + (r.elapsed_ms || 0), 0) / run.results.length)
+    : 0;
+
+  const panel = el('div', { class: 'panel', style: { marginBottom: '12px' } });
+  panel.appendChild(el('div', { class: 'panel-head' },
+    el('h3', null, '任务进度'),
+    el('span', { class: 'meta' }, done + ' / ' + total + ' tasks · ' + pct + '%'),
+    el('div', { class: 'spacer' }),
+    el('span', { class: 'pill pill-running' }, el('span', { class: 'led' }), '运行中'),
+  ));
+
+  const body = el('div', { class: 'panel-body' });
+
+  // stats row
+  body.appendChild(el('div', { class: 'task-stats' },
+    el('span', { class: 'task-stat good' }, el('span', { class: 'led-dot pass' }), passCount + ' 通过'),
+    el('span', { class: 'task-stat bad' }, el('span', { class: 'led-dot fail' }), failCount + ' 失败'),
+    el('span', { class: 'task-stat warn' }, el('span', { class: 'led-dot warn' }), errors + ' 错误'),
+    el('span', { class: 'spacer' }),
+    el('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--ink-3)' } },
+      'pass ' + passRate + '%' + (avgMs ? ' · avg ' + fmtMs(avgMs) : '')),
+  ));
+
+  // progress bar
+  body.appendChild(el('div', { class: 'progress', style: { margin: '10px 0' } },
+    el('div', { class: 'progress-fill', style: { width: pct + '%' } })));
+
+  // task grid cells — grouped by category
+  if (total > 0) {
+    const catGroups = {};
+    run.results.forEach(r => {
+      const cat = (r.task && r.task.category) || 'unknown';
+      (catGroups[cat] ||= []).push(r);
+    });
+    const catNames = Object.keys(catGroups).sort();
+    const hasCats = catNames.length > 1 || (catNames.length === 1 && catNames[0] !== 'unknown');
+
+    if (hasCats && run.results.length > 0) {
+      const legend = el('div', { class: 'task-cat-legend' });
+      catNames.forEach(cat => {
+        const gr = catGroups[cat];
+        const p = gr.filter(r => !r.error && r.pass !== false).length;
+        const f = gr.filter(r => !r.error && r.pass === false).length;
+        const e = gr.filter(r => !!r.error).length;
+        legend.appendChild(el('span', { class: 'task-cat-item' },
+          el('span', { class: 'cat-name' }, cat),
+          el('span', { class: 'cat-counts' }, p + '✓ ' + f + '✗' + (e > 0 ? ' ' + e + '!' : '')),
+        ));
+      });
+      body.appendChild(legend);
+    }
+
+    const grid = el('div', { class: 'task-grid' });
+    for (let i = 0; i < total; i++) {
+      const result = resultsByIndex[i];
+      let state = 'pending';
+      let title = '#' + (i + 1) + ' · pending';
+      if (result) {
+        const tid = (result.task && result.task.task_id) || '#' + (i + 1);
+        const cat = (result.task && result.task.category) || '';
+        const catHint = cat ? ' [' + cat + ']' : '';
+        if (result.error) {
+          state = 'error';
+          title = tid + catHint + ' · ERROR · ' + fmtMs(result.elapsed_ms);
+        } else if (result.pass === false) {
+          state = 'fail';
+          title = tid + catHint + ' · FAIL' + (result.score != null ? ' ' + Math.round(result.score * 100) + '%' : '') + ' · ' + fmtMs(result.elapsed_ms);
+        } else if (result.pass === true) {
+          state = 'pass';
+          title = tid + catHint + ' · PASS' + (result.score != null ? ' ' + Math.round(result.score * 100) + '%' : '') + ' · ' + fmtMs(result.elapsed_ms);
+        } else {
+          state = 'neutral';
+          title = tid + catHint + ' · done · ' + fmtMs(result.elapsed_ms);
+        }
+      }
+      grid.appendChild(el('div', {
+        class: 'task-cell ' + state,
+        title,
+        onclick: result ? () => openBenchResultModal(result) : null,
+      }));
+    }
+    body.appendChild(grid);
+  }
+
+  // live counters summary
+  body.appendChild(el('div', { style: { display: 'flex', gap: '14px', marginTop: '10px', fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--ink-3)' } },
+    el('span', null, 'CONCURRENCY ' + ((run.payload && run.payload.concurrency) || '—')),
+    el('span', null, 'ELAPSED ' + (run.startedAt ? fmtMs(Date.now() - run.startedAt) : '—')),
+    run.effort ? el('span', null, 'EFFORT ' + run.effort) : null,
+  ));
+
+  panel.appendChild(body);
+  return panel;
+}
+
+function renderBenchReportBanner(run) {
+  const rep = run.finalReport;
+  const elapsed = rep ? fmtMs(rep.elapsed_ms) : (run.finishedAt && run.startedAt ? fmtMs(run.finishedAt - run.startedAt) : '—');
+  const ts = run.startedAt ? fmtTime(new Date(run.startedAt).toISOString()) : '';
+
+  const left = el('div', { class: 'report-banner-left' },
+    el('span', { class: 'report-badge' }, '测试报告'),
+    el('span', { class: 'report-meta' },
+      (run.model || '—') + ' · ' + (run.dataset || '—') + ' · ' + elapsed));
+
+  const scoreInfo = el('div', { class: 'report-banner-scores' });
+  if (rep && rep.pass_rate != null) {
+    const rate = Math.round(rep.pass_rate * 1000) / 10;
+    scoreInfo.appendChild(el('span', { class: 'pill ' + (rate >= 70 ? 'pill-good' : rate >= 40 ? 'pill-warn' : 'pill-bad') },
+      el('span', { class: 'led' }), 'pass rate ' + rate + '%'));
+  }
+  if (rep && rep.score_total != null) {
+    scoreInfo.appendChild(el('span', { class: 'mono', style: { fontSize: '12px', color: 'var(--ink-2)' } },
+      'score ' + (Math.round(rep.score_total * 100) / 100)));
+  }
+
+  return el('div', { class: 'report-banner' },
+    left, scoreInfo,
+    ts ? el('span', { class: 'report-ts' }, ts) : null);
+}
+
+function renderBenchCategoryBreakdown(run) {
+  const results = run.results || [];
+  if (results.length === 0) return el('div');
+
+  const catData = {};
+  results.forEach(r => {
+    const cat = (r.task && r.task.category) || 'unknown';
+    if (!catData[cat]) catData[cat] = { total: 0, passed: 0, failed: 0, errors: 0, totalMs: 0 };
+    const d = catData[cat];
+    d.total++;
+    if (r.error) d.errors++;
+    else if (r.pass === true) d.passed++;
+    else if (r.pass === false) d.failed++;
+    else d.passed++;
+    d.totalMs += r.elapsed_ms || 0;
+  });
+
+  const cats = Object.keys(catData).sort();
+  if (cats.length <= 1 && cats[0] === 'unknown') return el('div');
+
+  const panel = el('div', { class: 'panel', style: { marginBottom: '12px' } });
+  panel.appendChild(el('div', { class: 'panel-head' },
+    el('h3', null, '分类分布'),
+    el('span', { class: 'meta' }, cats.length + ' categories'),
+  ));
+  const body = el('div', { class: 'panel-body', style: { padding: '0' } });
+  const strip = el('div', { class: 'bench-cat-strip' });
+
+  cats.forEach(cat => {
+    const d = catData[cat];
+    const rate = d.total > 0 ? Math.round(d.passed / d.total * 100) : 0;
+    const rateColor = rate >= 80 ? 'var(--good-ink)' : rate >= 50 ? 'var(--warn-ink)' : 'var(--bad-ink)';
+    const avgMs = d.total > 0 ? Math.round(d.totalMs / d.total) : 0;
+
+    strip.appendChild(el('div', { class: 'bench-cat-row' },
+      el('span', { class: 'name' }, cat),
+      el('div', { class: 'track' },
+        el('div', { class: 'fill', style: { width: rate + '%', background: rate >= 80 ? 'var(--good)' : rate >= 50 ? 'var(--warn)' : 'var(--bad)' } })),
+      el('span', { class: 'frac' }, d.passed + '/' + d.total),
+      el('span', { class: 'pct', style: { color: rateColor } }, rate + '%'),
+      el('span', { class: 'avg' }, fmtMs(avgMs)),
+    ));
+  });
+
+  body.appendChild(strip);
+  panel.appendChild(body);
+  return panel;
+}
+
 function renderBenchResultsList(run) {
   const panel = el('div', { class: 'panel' });
   panel.appendChild(el('div', { class: 'panel-head' },
@@ -746,7 +951,7 @@ function renderBenchResultsList(run) {
     // header
     list.appendChild(el('div', { class: 'live-row',
       style: { background: 'var(--panel-2)', color: 'var(--ink-4)', fontSize: '10px', letterSpacing: '.08em', textTransform: 'uppercase', cursor: 'default' } },
-      el('span'), el('span', null, 'lang'), el('span', null, 'cat'), el('span', null, 'task'), el('span', { style: { textAlign: 'right' } }, 'ms'), el('span'),
+      el('span'), el('span', null, 'lang'), el('span', null, 'cat'), el('span', null, 'task'), el('span', null, 'eval'), el('span', { style: { textAlign: 'right' } }, 'ms'),
     ));
     run.results.forEach(r => list.appendChild(renderBenchResultRow(r)));
   }
@@ -758,29 +963,87 @@ function renderBenchResultsList(run) {
 function renderBenchResultRow(r) {
   const t = r.task || {};
   const hasErr = !!r.error;
-  const row = el('div', { class: 'live-row' + (hasErr ? ' err' : ''),
+  const passed = r.pass === true;
+  const failed = r.pass === false;
+  const dotClass = hasErr ? 'fail' : failed ? 'fail' : passed ? 'pass' : 'pending';
+  const row = el('div', { class: 'live-row' + (hasErr ? ' err' : '') + (failed ? ' fail-row' : ''),
     onclick: () => openBenchResultModal(r) });
-  row.appendChild(el('span', { class: 'led-dot ' + (hasErr ? 'fail' : 'pass') }));
+  row.appendChild(el('span', { class: 'led-dot ' + dotClass }));
   row.appendChild(el('span', { class: 'lang' }, t.language || '—'));
   row.appendChild(el('span', { class: 'cat' }, t.category || '—'));
   row.appendChild(el('span', { class: 'preview' }, t.prompt ? t.prompt.slice(0, 80) : ''));
+  // eval info column
+  const evalCell = el('span', { class: 'eval-info' });
+  if (hasErr) {
+    evalCell.appendChild(el('span', { class: 'itag itag-bad' }, 'ERR'));
+  } else if (r.score != null) {
+    const s = Math.round(r.score * 100);
+    evalCell.appendChild(el('span', { class: 'itag ' + (s >= 50 ? 'itag-good' : 'itag-bad') }, s + '%'));
+  } else if (passed) {
+    evalCell.appendChild(el('span', { class: 'itag itag-good' }, 'PASS'));
+  } else if (failed) {
+    evalCell.appendChild(el('span', { class: 'itag itag-bad' }, 'FAIL'));
+  }
+  if (r.eval_type && r.eval_type !== 'manual') {
+    evalCell.appendChild(el('span', { class: 'eval-type' }, r.eval_type));
+  }
+  row.appendChild(evalCell);
   row.appendChild(el('span', { class: 'ms' }, fmtMs(r.elapsed_ms || 0)));
-  row.appendChild(el('span', { class: 'id', style: { textAlign: 'right' } }, (t.task_id || '').slice(0, 10)));
   return row;
 }
 
 function openBenchResultModal(r) {
   const t = r.task || {};
   const body = el('div');
-  body.appendChild(el('div', { class: 'tag-row', style: { marginBottom: '12px' } },
-    el('span', { class: 'itag itag-info' }, t.language || '—'),
-    el('span', { class: 'itag itag-warn' }, t.category || '—'),
-    r.error ? el('span', { class: 'itag itag-bad' }, 'ERROR') : el('span', { class: 'itag itag-good' }, 'OK'),
-    el('span', { class: 'itag' }, fmtMs(r.elapsed_ms || 0)),
-    el('span', { class: 'itag' }, t.task_id || ''),
-  ));
+
+  // tags
+  const tags = el('div', { class: 'tag-row', style: { marginBottom: '12px' } });
+  tags.appendChild(el('span', { class: 'itag itag-info' }, t.language || '—'));
+  tags.appendChild(el('span', { class: 'itag itag-warn' }, t.category || '—'));
+  if (r.error) tags.appendChild(el('span', { class: 'itag itag-bad' }, 'ERROR'));
+  else if (r.pass === true) tags.appendChild(el('span', { class: 'itag itag-good' }, 'PASS'));
+  else if (r.pass === false) tags.appendChild(el('span', { class: 'itag itag-bad' }, 'FAIL'));
+  else tags.appendChild(el('span', { class: 'itag' }, 'DONE'));
+  tags.appendChild(el('span', { class: 'itag' }, fmtMs(r.elapsed_ms || 0)));
+  if (r.score != null) tags.appendChild(el('span', { class: 'itag ' + (r.score >= 0.5 ? 'itag-good' : 'itag-bad') }, 'score ' + Math.round(r.score * 100) + '%'));
+  if (r.eval_type) tags.appendChild(el('span', { class: 'itag itag-accent' }, r.eval_type));
+  tags.appendChild(el('span', { class: 'itag' }, t.task_id || ''));
+  body.appendChild(tags);
+
+  // evaluation verdict
+  if (r.pass != null || r.score != null) {
+    const evalPanel = el('div', { class: 'panel', style: { marginBottom: '12px' } });
+    evalPanel.appendChild(el('div', { class: 'panel-head' },
+      el('h3', null, '评估结果'),
+      el('span', { class: 'meta' }, r.eval_type || 'auto'),
+    ));
+    const evalBody = el('div', { class: 'panel-body' });
+    const evalGrid = el('div', { class: 'statbar', style: { marginBottom: '0' } });
+    evalGrid.appendChild(el('div', { class: 'cell' },
+      el('div', { class: 'k' }, 'VERDICT'),
+      el('div', { class: 'v' },
+        el('span', { class: 'pill ' + (r.pass ? 'pill-good' : 'pill-bad') }, el('span', { class: 'led' }), r.pass ? 'PASS' : 'FAIL'))));
+    if (r.score != null) {
+      evalGrid.appendChild(el('div', { class: 'cell' },
+        el('div', { class: 'k' }, 'SCORE'),
+        el('div', { class: 'v mono' }, Math.round(r.score * 100) + '%')));
+    }
+    evalGrid.appendChild(el('div', { class: 'cell' },
+      el('div', { class: 'k' }, 'METHOD'),
+      el('div', { class: 'v mono' }, r.eval_type || 'manual')));
+    evalBody.appendChild(evalGrid);
+    if (r.judge_reason) {
+      evalBody.appendChild(el('div', { style: { marginTop: '8px', fontSize: '12px', color: 'var(--ink-2)', lineHeight: '1.5' } }, r.judge_reason));
+    }
+    evalPanel.appendChild(evalBody);
+    body.appendChild(evalPanel);
+  }
+
+  // prompt
   body.appendChild(el('div', { class: 'eyebrow', style: { marginBottom: '4px' } }, 'PROMPT'));
   body.appendChild(el('pre', { class: 'json-out', style: { maxHeight: '240px' } }, t.prompt || ''));
+
+  // error or answer
   if (r.error) {
     body.appendChild(el('div', { class: 'eyebrow', style: { marginTop: '12px', marginBottom: '4px', color: 'var(--bad-ink)' } }, 'ERROR'));
     body.appendChild(el('pre', { class: 'json-out', style: { color: 'var(--bad-ink)' } }, r.error));

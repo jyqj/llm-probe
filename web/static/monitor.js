@@ -20,10 +20,16 @@ const STATUS_LABEL = {
 };
 
 /* ═══════════════════════════════════════════════════════════════════════
- * Dashboard — target grid + health overview
+ * Dashboard — target grid + health overview + activity feed
  * ═══════════════════════════════════════════════════════════════════════ */
 
+let _monitorPollTimer = null;
+function stopMonitorPoll() {
+  if (_monitorPollTimer) { clearInterval(_monitorPollTimer); _monitorPollTimer = null; }
+}
+
 async function renderMonitorDashboard() {
+  stopMonitorPoll();
   setCrumb([{ label: 'Monitor', href: '#/monitor' }, { cur: '监控面板' }],
     el('div', { class: 'crumb-actions' },
       btn('告警事件', { onClick: () => location.hash = '#/monitor/alerts', icon: 'bell', size: 'sm', ghost: true }),
@@ -33,9 +39,13 @@ async function renderMonitorDashboard() {
   v.innerHTML = '<div class="empty">加载中…</div>';
 
   try {
-    const data = await api('/api/monitor/targets');
-    State.monitor.targets = data.targets || [];
-    State.monitor.states = data.states || [];
+    const [targData, runData] = await Promise.all([
+      api('/api/monitor/targets'),
+      api('/api/monitor/runs?target_id='),
+    ]);
+    State.monitor.targets = targData.targets || [];
+    State.monitor.states = targData.states || [];
+    State.monitor.recentRuns = runData.runs || [];
   } catch (e) {
     v.innerHTML = '';
     v.appendChild(el('div', { class: 'empty', style: { color: 'var(--bad-ink)' } },
@@ -45,6 +55,36 @@ async function renderMonitorDashboard() {
 
   v.innerHTML = '';
   v.appendChild(buildDashboardBody());
+  paintRail(parseRoute(location.hash));
+
+  _monitorPollTimer = setInterval(async () => {
+    const route = parseRoute(location.hash);
+    if (route.app !== 'monitor' || route.kind !== 'dashboard') { stopMonitorPoll(); return; }
+    try {
+      const [targData, runData] = await Promise.all([
+        api('/api/monitor/targets'),
+        api('/api/monitor/runs?target_id='),
+      ]);
+      const oldStates = JSON.stringify(State.monitor.states);
+      const oldRuns = JSON.stringify((State.monitor.recentRuns || []).map(r => r.id));
+      State.monitor.targets = targData.targets || [];
+      State.monitor.states = targData.states || [];
+      State.monitor.recentRuns = runData.runs || [];
+      const newRuns = JSON.stringify((State.monitor.recentRuns || []).map(r => r.id));
+      if (JSON.stringify(State.monitor.states) !== oldStates || oldRuns !== newRuns) {
+        const v = $('#view'); if (v) { v.innerHTML = ''; v.appendChild(buildDashboardBody()); }
+        paintRail(parseRoute(location.hash));
+      }
+    } catch {}
+  }, 30000);
+}
+
+function targetWorstStatus(target, states) {
+  const targetStates = states.filter(s => s.target_id === target.id);
+  return targetStates.reduce((w, s) => {
+    const order = { critical: 3, warning: 2, unknown: 1, ok: 0 };
+    return (order[s.status] || 0) > (order[w] || 0) ? s.status : w;
+  }, targetStates.length > 0 ? 'ok' : 'unknown');
 }
 
 function buildDashboardBody() {
@@ -52,97 +92,196 @@ function buildDashboardBody() {
   const targets = State.monitor.targets;
   const states = State.monitor.states;
 
-  // overview statbar
-  const counts = { total: targets.length, ok: 0, warning: 0, critical: 0, unknown: 0 };
-  states.forEach(s => {
-    if (counts[s.status] != null) counts[s.status]++;
+  // per-channel status counts
+  const chCounts = { total: targets.length, ok: 0, warning: 0, critical: 0, unknown: 0, enabled: 0, paused: 0 };
+  targets.forEach(t => {
+    const ws = targetWorstStatus(t, states);
+    if (chCounts[ws] != null) chCounts[ws]++;
+    if (t.enabled) chCounts.enabled++; else chCounts.paused++;
   });
+
   if (targets.length > 0) {
     wrap.appendChild(el('div', { class: 'statbar' },
-      el('div', { class: 'cell' }, el('div', { class: 'k' }, 'TARGETS'), el('div', { class: 'v big' }, counts.total)),
-      el('div', { class: 'cell' }, el('div', { class: 'k' }, 'OK'), el('div', { class: 'v big good' }, counts.ok)),
-      el('div', { class: 'cell' }, el('div', { class: 'k' }, 'WARNING'), el('div', { class: 'v big', style: { color: 'var(--warn-ink)' } }, counts.warning)),
-      el('div', { class: 'cell' }, el('div', { class: 'k' }, 'CRITICAL'), el('div', { class: 'v big bad' }, counts.critical)),
-      el('div', { class: 'cell' }, el('div', { class: 'k' }, 'UNKNOWN'), el('div', { class: 'v big' }, counts.unknown)),
+      el('div', { class: 'cell' }, el('div', { class: 'k' }, '渠道总数'), el('div', { class: 'v big' }, chCounts.total)),
+      el('div', { class: 'cell' }, el('div', { class: 'k' }, '正常'), el('div', { class: 'v big good' }, chCounts.ok)),
+      el('div', { class: 'cell' }, el('div', { class: 'k' }, '告警'), el('div', { class: 'v big', style: { color: 'var(--warn-ink)' } }, chCounts.warning)),
+      el('div', { class: 'cell' }, el('div', { class: 'k' }, '异常'), el('div', { class: 'v big bad' }, chCounts.critical)),
+      el('div', { class: 'cell' }, el('div', { class: 'k' }, '运行中'), el('div', { class: 'v big' }, chCounts.enabled)),
+      el('div', { class: 'cell' }, el('div', { class: 'k' }, '已暂停'), el('div', { class: 'v big' }, chCounts.paused)),
     ));
   }
 
-  // target cards or empty state
+  // target cards — sorted: critical > warning > unknown > ok, then paused last
   const panel = el('div', { class: 'panel' });
   panel.appendChild(el('div', { class: 'panel-head' },
-    el('h3', null, '监控目标'),
-    el('span', { class: 'meta' }, targets.length + ' 个 target'),
+    el('h3', null, '渠道列表'),
+    el('span', { class: 'meta' }, targets.length + ' 个渠道'),
     el('div', { class: 'spacer' }),
-    btn('+ 添加 Target', { icon: 'add', size: 'sm', primary: true, onClick: () => openTargetDrawer() }),
+    btn('+ 添加渠道', { icon: 'add', size: 'sm', primary: true, onClick: () => openTargetDrawer() }),
   ));
 
   if (targets.length === 0) {
     panel.appendChild(el('div', { class: 'empty' },
       el('div', { class: 'glyph' }, '◎'),
-      '尚无监控目标 · 点击「添加 Target」开始持续检测'));
+      '尚无监控渠道 · 点击「添加渠道」开始持续检测'));
   } else {
+    const statusOrder = { critical: 0, warning: 1, unknown: 2, ok: 3 };
+    const sorted = targets.slice().sort((a, b) => {
+      if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+      const sa = statusOrder[targetWorstStatus(a, states)] ?? 2;
+      const sb = statusOrder[targetWorstStatus(b, states)] ?? 2;
+      return sa - sb;
+    });
     const body = el('div', { class: 'panel-body', style: { padding: '12px' } });
-    const grid = el('div', { class: 'model-grid', style: { margin: 0 } });
-    targets.forEach(t => grid.appendChild(buildTargetCard(t, states)));
+    const grid = el('div', { class: 'mon-grid' });
+    sorted.forEach(t => grid.appendChild(buildTargetCard(t, states)));
     body.appendChild(grid);
     panel.appendChild(body);
   }
   wrap.appendChild(panel);
+
+  // recent activity feed
+  const runs = State.monitor.recentRuns || [];
+  if (runs.length > 0) {
+    wrap.appendChild(buildActivityPanel(runs, targets));
+  }
+
   return wrap;
 }
 
 function buildTargetCard(target, states) {
   const targetStates = states.filter(s => s.target_id === target.id);
-  const worstStatus = targetStates.reduce((w, s) => {
-    const order = { critical: 3, warning: 2, unknown: 1, ok: 0 };
-    return (order[s.status] || 0) > (order[w] || 0) ? s.status : w;
-  }, 'ok');
+  const worstStatus = targetWorstStatus(target, states);
+  const borderColor = worstStatus === 'ok' ? 'var(--good)' : worstStatus === 'warning' ? 'var(--warn)' : worstStatus === 'critical' ? 'var(--bad)' : 'var(--ink-5)';
 
-  const card = el('div', { class: 'model-card',
-    onclick: () => location.hash = '#/monitor/target/' + target.id,
-  });
+  const card = el('div', { class: 'mon-card' + (target.enabled ? '' : ' paused') });
+  card.style.borderLeftColor = borderColor;
 
-  // top row: status LED + name + enabled badge
-  card.appendChild(el('div', { class: 'top' },
+  // header: name + status + actions
+  const header = el('div', { class: 'mon-card-head' });
+  header.appendChild(el('div', { class: 'mon-card-name', onclick: () => location.hash = '#/monitor/target/' + target.id },
     el('span', { class: 'led-dot ' + (STATUS_LED[worstStatus] || 'pending') }),
-    el('div', { class: 'name' }, target.name || target.base_url),
-    target.enabled
-      ? el('span', { class: 'pill pill-good', style: { fontSize: '9px' } }, '运行中')
-      : el('span', { class: 'pill', style: { fontSize: '9px' } }, '已暂停'),
+    el('span', { class: 'name-text' }, target.name || '未命名渠道'),
   ));
+  const actions = el('div', { class: 'mon-card-actions' });
+  actions.appendChild(el('button', {
+    class: 'iconbtn', title: '手动运行',
+    onclick: ev => { ev.stopPropagation(); manualRunTarget(target.id); },
+  }, mkIcon('play', { size: 12 })));
+  actions.appendChild(el('button', {
+    class: 'iconbtn', title: target.enabled ? '暂停' : '启用',
+    onclick: async ev => { ev.stopPropagation(); await toggleTarget(target.id, !target.enabled); renderMonitorDashboard(); },
+  }, mkIcon(target.enabled ? 'pause' : 'power', { size: 12 })));
+  actions.appendChild(el('button', {
+    class: 'iconbtn', title: '编辑',
+    onclick: ev => { ev.stopPropagation(); openTargetDrawer(target); },
+  }, mkIcon('edit', { size: 12 })));
+  header.appendChild(actions);
+  card.appendChild(header);
 
-  // url
-  card.appendChild(el('div', { class: 'mono', style: { fontSize: '10px', color: 'var(--ink-4)', marginBottom: '8px' } },
-    (target.base_url || '').replace(/^https?:\/\//, '')));
+  // url + badges row
+  const meta = el('div', { class: 'mon-card-meta' });
+  meta.appendChild(el('span', { class: 'mono url-text' }, (target.base_url || '').replace(/^https?:\/\//, '')));
+  meta.appendChild(el('span', { class: 'itag itag-accent' }, target.check_type || 'channel'));
+  if (!target.enabled) meta.appendChild(el('span', { class: 'itag' }, '已暂停'));
+  card.appendChild(meta);
 
-  // per-model status rows
+  // per-model health dots
   if (targetStates.length > 0) {
-    const cats = el('div', { class: 'cats' });
+    const modelRow = el('div', { class: 'mon-model-row' });
     targetStates.forEach(s => {
-      const color = s.status === 'ok' ? 'var(--good)' : s.status === 'warning' ? 'var(--warn)' : s.status === 'critical' ? 'var(--bad)' : 'var(--ink-5)';
-      const pct = s.score || 0;
-      cats.appendChild(el('div', { class: 'cat-bar' },
-        el('span', { class: 'label' }, s.model.replace('claude-', '').slice(0, 10)),
-        el('div', { class: 'track' },
-          el('div', { class: 'fill', style: { width: Math.min(pct, 100) + '%', background: color } })),
-        el('span', { class: 'pct', style: { color } }, s.grade || '–'),
-      ));
+      const sc = s.status === 'ok' ? 'var(--good)' : s.status === 'warning' ? 'var(--warn)' : s.status === 'critical' ? 'var(--bad)' : 'var(--ink-5)';
+      const modelPill = el('div', { class: 'mon-model-pill',
+        onclick: () => location.hash = '#/monitor/target/' + target.id,
+      });
+      modelPill.appendChild(el('span', { class: 'led-dot ' + (STATUS_LED[s.status] || 'pending'), style: { width: '5px', height: '5px' } }));
+      modelPill.appendChild(el('span', { class: 'model-name' }, s.model.replace('claude-', '').replace(/-/g, ' ')));
+      modelPill.appendChild(el('span', { class: 'model-score', style: { color: sc } }, s.grade || '–'));
+      if (s.score != null && s.score > 0) {
+        const bar = el('div', { class: 'mini-bar' });
+        bar.appendChild(el('div', { class: 'mini-fill', style: { width: Math.min(s.score, 100) + '%', background: sc } }));
+        modelPill.appendChild(bar);
+      }
+      modelRow.appendChild(modelPill);
     });
-    card.appendChild(cats);
+    card.appendChild(modelRow);
   } else {
-    card.appendChild(el('div', { class: 'muted', style: { fontSize: '11px' } }, '尚未运行'));
+    card.appendChild(el('div', { class: 'muted', style: { fontSize: '11px', padding: '4px 0' } }, '尚未运行'));
   }
 
-  // footer: interval + last check
+  // footer: interval + models count + last check
   const lastCheck = targetStates.reduce((latest, s) =>
     s.last_check && new Date(s.last_check) > new Date(latest || 0) ? s.last_check : latest, null);
-  card.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '8px',
-    fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--ink-4)' } },
-    el('span', null, formatInterval(target.interval)),
-    el('span', null, lastCheck ? fmtTimeAgo(lastCheck) : '—'),
-  ));
+  const foot = el('div', { class: 'mon-card-foot' });
+  foot.appendChild(el('span', null, formatInterval(target.interval)));
+  foot.appendChild(el('span', null, (target.models || []).length + ' models'));
+  foot.appendChild(el('span', null, lastCheck ? fmtTimeAgo(lastCheck) : '—'));
+  card.appendChild(foot);
 
   return card;
+}
+
+function buildActivityPanel(runs, targets) {
+  const targetMap = {};
+  targets.forEach(t => { targetMap[t.id] = t; });
+
+  const panel = el('div', { class: 'panel', style: { marginTop: '12px' } });
+  panel.appendChild(el('div', { class: 'panel-head' },
+    el('h3', null, '最近活动'),
+    el('span', { class: 'meta' }, '最近 ' + runs.length + ' 条运行记录'),
+  ));
+
+  const t = el('table', { class: 'table' });
+  t.appendChild(el('thead', null, el('tr', null,
+    el('th', { style: { width: '24px' } }, ''),
+    el('th', null, '渠道'),
+    el('th', null, 'model'),
+    el('th', { style: { width: '80px' } }, 'status'),
+    el('th', { style: { width: '70px', textAlign: 'right' } }, 'score'),
+    el('th', { style: { width: '50px', textAlign: 'right' } }, 'grade'),
+    el('th', { style: { width: '80px', textAlign: 'right' } }, 'elapsed'),
+    el('th', { style: { width: '50px' } }, 'changed'),
+    el('th', { style: { width: '110px' } }, 'when'),
+  )));
+  const tb = el('tbody');
+  runs.slice(0, 30).forEach(r => {
+    const sc = r.status === 'ok' ? 'var(--good)' : r.status === 'warning' ? 'var(--warn)' : r.status === 'critical' ? 'var(--bad)' : 'var(--ink-4)';
+    const tgt = targetMap[r.target_id];
+    const channelName = tgt ? (tgt.name || tgt.base_url) : r.target_id;
+    const tr = el('tr', { onclick: () => {
+      if (r.report || r.intelligence_report) openRunDetailModal(r);
+    }});
+    tr.appendChild(el('td', null, el('span', { class: 'led-dot ' + (STATUS_LED[r.status] || 'pending') })));
+    tr.appendChild(el('td', { class: 'name-cell', style: { maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, channelName));
+    tr.appendChild(el('td', { class: 'mono' }, r.model || '—'));
+    tr.appendChild(el('td', null,
+      el('span', { class: 'pill ' + (STATUS_PILL[r.status] || ''), style: { fontSize: '10px' } },
+        el('span', { class: 'led' }), STATUS_LABEL[r.status] || r.status)));
+    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', color: sc, fontWeight: 600 } },
+      r.score != null ? Math.round(r.score) : '—'));
+    tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } }, r.grade || '—'));
+    tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } }, fmtMs(r.elapsed_ms)));
+    tr.appendChild(el('td', null, r.changed
+      ? el('span', { class: 'itag itag-warn' }, r.prev_state + '→' + r.status)
+      : el('span', { class: 'itag' }, '—')));
+    tr.appendChild(el('td', { class: 'mono', style: { fontSize: '11px' } }, fmtTimeAgo(r.started_at)));
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  panel.appendChild(t);
+  return panel;
+}
+
+async function toggleTarget(targetId, enabled) {
+  try {
+    await api('/api/monitor/targets/' + targetId, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    });
+    toast(enabled ? '已启用' : '已暂停', 'good');
+  } catch (e) {
+    toast('操作失败: ' + e.message, 'bad');
+  }
 }
 
 function formatInterval(ns) {
@@ -249,8 +388,8 @@ async function openTargetDrawer(existingTarget) {
     })));
   }
 
-  body.appendChild(buildField('NAME', el('input', {
-    value: name, placeholder: 'My API Channel',
+  body.appendChild(buildField('渠道名称', el('input', {
+    value: name, placeholder: '例: 官方直连 / 某某中转 / 测试渠道A',
     oninput: e => { name = e.target.value.trim(); },
     style: { width: '100%', background: 'transparent', border: 'none', padding: '0' }
   })));
@@ -336,7 +475,7 @@ async function openTargetDrawer(existingTarget) {
     }}),
   );
 
-  openDrawer(isEdit ? '编辑 Target' : '添加 Target', body, foot);
+  openDrawer(isEdit ? '编辑渠道' : '添加渠道', body, foot);
 }
 
 function buildMonitorModelChips(models) {
@@ -393,6 +532,10 @@ async function renderMonitorTarget(targetId) {
 
   setCrumb([{ label: 'Monitor', href: '#/monitor' }, { cur: target.name || target.base_url }],
     el('div', { class: 'crumb-actions' },
+      btn(target.enabled ? '暂停' : '启用', {
+        icon: target.enabled ? 'pause' : 'power', size: 'sm', ghost: true,
+        onClick: async () => { await toggleTarget(targetId, !target.enabled); renderMonitorTarget(targetId); },
+      }),
       btn('编辑', { icon: 'edit', size: 'sm', ghost: true, onClick: () => openTargetDrawer(target) }),
       btn('手动运行', { icon: 'play', size: 'sm', primary: true, onClick: () => manualRunTarget(targetId) }),
       btn('删除', { icon: 'trash', size: 'sm', danger: true, onClick: () => deleteTarget(targetId) }),

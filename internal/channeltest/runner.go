@@ -1,6 +1,7 @@
 package channeltest
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -18,6 +19,7 @@ type Exchange struct {
 type Runner struct {
 	HTTPClient *http.Client
 	recording  bool
+	ctx        context.Context
 	mu         sync.Mutex
 	exchanges  []Exchange
 }
@@ -34,6 +36,7 @@ func (p *Runner) withRecorder() *Runner {
 	return &Runner{
 		HTTPClient: p.HTTPClient,
 		recording:  true,
+		ctx:        p.ctx,
 	}
 }
 

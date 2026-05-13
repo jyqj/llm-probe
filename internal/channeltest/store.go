@@ -1,6 +1,7 @@
 package channeltest
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -37,25 +38,27 @@ func (p *StorePersist) logErr(op string, err error) {
 
 // Store caches per-upstream channel test results only.
 type Store struct {
-	mu       sync.RWMutex
-	entries  map[string]*StoreEntry // key = upstream base URL
-	history  []*Report
-	runner   *Runner
-	logger   *slog.Logger
-	autoRun  bool
-	onReport ReportSink
-	persist  *StorePersist
+	mu         sync.RWMutex
+	entries    map[string]*StoreEntry // key = upstream base URL
+	history    []*Report
+	maxHistory int // 0 = unlimited
+	runner     *Runner
+	logger     *slog.Logger
+	autoRun    bool
+	onReport   ReportSink
+	persist    *StorePersist
 }
 
 // NewStore creates a channel test store.
-func NewStore(runner *Runner, logger *slog.Logger, autoRun bool, onReport ReportSink, p *StorePersist) *Store {
+func NewStore(runner *Runner, logger *slog.Logger, autoRun bool, onReport ReportSink, p *StorePersist, maxHistory int) *Store {
 	s := &Store{
-		entries:  make(map[string]*StoreEntry),
-		runner:   runner,
-		logger:   logger,
-		autoRun:  autoRun,
-		onReport: onReport,
-		persist:  p,
+		entries:    make(map[string]*StoreEntry),
+		maxHistory: maxHistory,
+		runner:     runner,
+		logger:     logger,
+		autoRun:    autoRun,
+		onReport:   onReport,
+		persist:    p,
 	}
 
 	// Load persisted history (newest-first from DB, reverse to oldest-first for in-memory slice).
@@ -118,11 +121,27 @@ func (s *Store) SetResult(upstreamBase string, report *Report) {
 		if p := s.persist; p != nil && p.Save != nil {
 			p.logErr("save_channel_history", p.Save(p.DB, report))
 		}
+		s.trimHistoryLocked()
 	}
 	s.mu.Unlock()
 
 	if report != nil && s.onReport != nil {
 		s.onReport(upstreamBase, report)
+	}
+}
+
+// trimHistoryLocked removes oldest records if history exceeds maxHistory. Must hold mu.
+func (s *Store) trimHistoryLocked() {
+	if s.maxHistory <= 0 || len(s.history) <= s.maxHistory {
+		return
+	}
+	excess := len(s.history) - s.maxHistory
+	removed := s.history[:excess]
+	s.history = s.history[excess:]
+	if p := s.persist; p != nil && p.Delete != nil {
+		for _, r := range removed {
+			p.logErr("trim_channel_history", p.Delete(p.DB, r.ID))
+		}
 	}
 }
 
@@ -259,6 +278,94 @@ func (s *Store) RunMultiSync(upstreamBase, upstreamKey, channelName string, mode
 		s.SetResult(upstreamBase+"#"+r.Model, r)
 	}
 	return reports, nil
+}
+
+// RunSyncCtx runs a synchronous channel test with context for cancellation.
+func (s *Store) RunSyncCtx(ctx context.Context, upstreamBase, upstreamKey, model, channelName string, concurrency int) (*Report, error) {
+	report, err := s.runner.RunCtx(ctx, upstreamBase, upstreamKey, model, concurrency)
+	if err != nil {
+		return nil, err
+	}
+	if channelName != "" {
+		report.ChannelName = channelName
+	} else {
+		report.ChannelName = AutoChannelName(upstreamBase, model)
+	}
+	s.SetResult(upstreamBase, report)
+	return report, nil
+}
+
+// RunMultiSyncCtx runs tests for multiple models with context.
+func (s *Store) RunMultiSyncCtx(ctx context.Context, upstreamBase, upstreamKey, channelName string, models []string, concurrency int) ([]*Report, error) {
+	reports, err := s.runner.RunMultiCtx(ctx, upstreamBase, upstreamKey, models, concurrency)
+	if err != nil {
+		return nil, err
+	}
+	runGroup := ""
+	if len(reports) > 1 {
+		runGroup = fmt.Sprintf("g_%d", time.Now().UnixNano())
+	}
+	for _, r := range reports {
+		r.RunGroup = runGroup
+		if channelName != "" {
+			r.ChannelName = channelName
+		} else {
+			r.ChannelName = AutoChannelName(upstreamBase, r.Model)
+		}
+		s.SetResult(upstreamBase+"#"+r.Model, r)
+	}
+	return reports, nil
+}
+
+// RunMultiStream runs tests for multiple models with streaming events.
+// The onEvent callback receives probe-level and model-level events.
+// The caller is responsible for emitting the "start" and "done" envelope events.
+func (s *Store) RunMultiStream(ctx context.Context, upstreamBase, upstreamKey, channelName string, models []string, concurrency int, onEvent func(StreamEvent)) ([]*Report, error) {
+	runGroup := ""
+	if len(models) > 1 {
+		runGroup = fmt.Sprintf("g_%d", time.Now().UnixNano())
+	}
+
+	storeReport := func(r *Report) {
+		r.RunGroup = runGroup
+		if channelName != "" {
+			r.ChannelName = channelName
+		} else {
+			r.ChannelName = AutoChannelName(upstreamBase, r.Model)
+		}
+		key := upstreamBase
+		if len(models) > 1 {
+			key = upstreamBase + "#" + r.Model
+		}
+		s.SetResult(key, r)
+	}
+
+	reports, err := s.runner.RunMultiStream(ctx, upstreamBase, upstreamKey, models, concurrency, func(ev StreamEvent) {
+		if ev.Type == "model_done" && ev.Report != nil {
+			storeReport(ev.Report)
+		}
+		onEvent(ev)
+	})
+	if err != nil {
+		return reports, err
+	}
+	return reports, nil
+}
+
+// GetHistoryGroup returns all history records with the given run group ID.
+func (s *Store) GetHistoryGroup(groupID string) []*Report {
+	if groupID == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*Report
+	for _, r := range s.history {
+		if r.RunGroup == groupID {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // UpdateHistoryName updates the channel name on an existing history record.

@@ -20,7 +20,7 @@ const State = {
   datasets: [],
   currentDataset: '',
   // monitor
-  monitor: { targets: [], states: [] },
+  monitor: { targets: [], states: [], recentRuns: [] },
 };
 
 /* ─── escape / format ─── */
@@ -322,4 +322,16 @@ function intensityToParams(model, level) {
   if (level === 'enabled') return { thinking: true, thinkingMode: 'enabled', effort: '' };
   if (level === 'adaptive') return { thinking: true, thinkingMode: c.thinkingMode === 'adaptive_only' ? 'adaptive_only' : 'adaptive', effort: '' };
   return { thinking: true, thinkingMode: c.thinkingMode === 'adaptive_only' ? 'adaptive_only' : c.thinkingMode, effort: level };
+}
+
+/* ─── SSE watchdog — detects stalled connections ─── */
+function createSSEWatchdog(timeoutMs, onTimeout) {
+  let timer = null;
+  const reset = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(onTimeout, timeoutMs);
+  };
+  const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  reset();
+  return { reset, stop };
 }

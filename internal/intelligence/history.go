@@ -43,14 +43,15 @@ func (p *HistoryPersist) logErr(op string, err error) {
 
 // HistoryStore keeps all benchmark run reports in memory, backed by SQLite.
 type HistoryStore struct {
-	mu      sync.RWMutex
-	records []*RunReport
-	persist *HistoryPersist
+	mu         sync.RWMutex
+	records    []*RunReport
+	maxHistory int
+	persist    *HistoryPersist
 }
 
 // NewHistoryStore creates a new HistoryStore, loading existing records from SQLite.
-func NewHistoryStore(p *HistoryPersist) *HistoryStore {
-	h := &HistoryStore{persist: p}
+func NewHistoryStore(p *HistoryPersist, maxHistory int) *HistoryStore {
+	h := &HistoryStore{persist: p, maxHistory: maxHistory}
 	if p != nil && p.Load != nil {
 		if rows, err := p.Load(p.DB); err == nil && len(rows) > 0 {
 			// rows come back newest-first; reverse to chronological order in memory
@@ -74,6 +75,21 @@ func (h *HistoryStore) Add(report *RunReport) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.records = append(h.records, report)
+	h.trimLocked()
+}
+
+func (h *HistoryStore) trimLocked() {
+	if h.maxHistory <= 0 || len(h.records) <= h.maxHistory {
+		return
+	}
+	excess := len(h.records) - h.maxHistory
+	removed := h.records[:excess]
+	h.records = h.records[excess:]
+	if p := h.persist; p != nil && p.Delete != nil {
+		for _, r := range removed {
+			p.logErr("trim_intelligence_history", p.Delete(p.DB, r.ID))
+		}
+	}
 }
 
 // List returns summaries in reverse chronological order.

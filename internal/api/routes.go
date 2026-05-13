@@ -7,6 +7,7 @@ import (
 
 func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	// 渠道测试：判断 API 是否像真实 Anthropic/Claude 渠道。
+	mux.HandleFunc("/api/channel/run/stream", a.adminAuth(a.handleChannelRunStream))
 	mux.HandleFunc("/api/channel/run", a.adminAuth(a.handleChannelRun))
 	mux.HandleFunc("/api/channel/report", a.adminAuth(a.handleChannelReport))
 	mux.HandleFunc("/api/channel/history", a.adminAuth(a.handleChannelHistory))

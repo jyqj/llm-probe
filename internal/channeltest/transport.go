@@ -1,6 +1,7 @@
 package channeltest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,9 +13,16 @@ import (
 
 func (p *Runner) send(targetBase, targetKey string, body []byte) (*http.Response, error) {
 	url := strings.TrimRight(targetBase, "/") + "/v1/messages"
+	ctx := p.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequest("POST", url, strings.NewReader(string(body)))
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(body)))
 		if err != nil {
 			return nil, fmt.Errorf("create: %w", err)
 		}
@@ -35,7 +43,11 @@ func (p *Runner) send(targetBase, targetKey string, body []byte) (*http.Response
 				}
 			}
 			resp.Body.Close()
-			time.Sleep(retryAfter)
+			select {
+			case <-time.After(retryAfter):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 			continue
 		}
 		if resp.StatusCode != 200 {

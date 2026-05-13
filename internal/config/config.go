@@ -37,7 +37,8 @@ type Config struct {
 
 // StorageConfig controls persistent storage.
 type StorageConfig struct {
-	Path string `yaml:"path"`
+	Path       string `yaml:"path"`
+	MaxHistory int    `yaml:"max_history"` // max history records per store (0 = unlimited, default 500)
 }
 
 // AlertCfg controls alert webhook configuration.
@@ -94,7 +95,7 @@ func Load(path string) (*Config, error) {
 		Upstream: UpstreamConfig{Timeout: 300},
 		Models:   ModelConfig{DefaultModel: "claude-opus-4-6"},
 		Log:      LogConfig{Level: "info"},
-		Storage:  StorageConfig{Path: "data/detector.db"},
+		Storage:  StorageConfig{Path: "data/detector.db", MaxHistory: 500},
 	}
 	if err := yaml.Unmarshal([]byte(expandEnvWithDefaults(string(data))), cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)

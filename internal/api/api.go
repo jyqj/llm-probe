@@ -2,6 +2,7 @@ package api
 
 import (
 	"log/slog"
+	"sync"
 
 	"detector-service/internal/alert"
 	"detector-service/internal/audit"
@@ -28,6 +29,8 @@ type API struct {
 	alertEvaluator *alert.Evaluator
 	alertNotifier  *alert.Notifier
 	alertRules     []alert.Rule
+
+	benchLocks sync.Map // key: "target#model" → *sync.Mutex
 }
 
 func New(cfg *config.Config, logger *slog.Logger, channelStore *channeltest.Store, intelligenceRegistry *intelligence.Registry, intelligenceRunner *intelligence.Runner, intelligenceHistory *intelligence.HistoryStore) *API {
@@ -56,4 +59,9 @@ func (a *API) SetAlerts(store *alert.Store, evaluator *alert.Evaluator, notifier
 	a.alertEvaluator = evaluator
 	a.alertNotifier = notifier
 	a.alertRules = rules
+}
+
+func (a *API) getBenchLock(key string) *sync.Mutex {
+	v, _ := a.benchLocks.LoadOrStore(key, &sync.Mutex{})
+	return v.(*sync.Mutex)
 }

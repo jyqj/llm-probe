@@ -109,14 +109,21 @@ function paintRail(route) {
       railLink('告警事件', '#/monitor/alerts', route.kind === 'alerts', 'bell'),
     ]));
     if (State.monitor.targets.length > 0) {
-      rail.appendChild(railSection('TARGETS',
-        State.monitor.targets.map(t => {
-          const st = State.monitor.states.find(s => s.target_id === t.id) || {};
-          return railLink(t.name || t.base_url, '#/monitor/target/' + t.id,
-            route.kind === 'target' && route.id === t.id,
-            'target');
-        })
-      ));
+      const sec = el('div', { class: 'rail-section' });
+      sec.appendChild(el('div', { class: 'rail-label' }, '渠道'));
+      State.monitor.targets.forEach(t => {
+        const ws = targetWorstStatus(t, State.monitor.states);
+        const ledClass = STATUS_LED[ws] || 'pending';
+        const isActive = route.kind === 'target' && route.id === t.id;
+        const link = el('a', { class: 'rail-link' + (isActive ? ' active' : ''), href: '#/monitor/target/' + t.id });
+        link.appendChild(el('span', { class: 'led-dot ' + ledClass, style: { width: '6px', height: '6px' } }));
+        const nameSpan = el('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+          t.name || t.base_url);
+        link.appendChild(nameSpan);
+        if (!t.enabled) link.appendChild(el('span', { class: 'itag', style: { fontSize: '8px', padding: '0 3px' } }, '停'));
+        sec.appendChild(link);
+      });
+      rail.appendChild(sec);
     }
   } else if (route.app === 'settings') {
     rail.appendChild(railSection('SETTINGS', [

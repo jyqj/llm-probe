@@ -2,9 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
+	"detector-service/internal/channeltest"
 	"detector-service/internal/target"
 )
 
@@ -36,8 +41,9 @@ func (a *API) handleChannelRun(w http.ResponseWriter, r *http.Request) {
 		models = []string{t.Model}
 	}
 
+	ctx := r.Context()
 	if len(models) == 1 {
-		report, err := a.channelStore.RunSync(t.BaseURL, t.APIKey, models[0], body.ChannelName, body.Concurrency)
+		report, err := a.channelStore.RunSyncCtx(ctx, t.BaseURL, t.APIKey, models[0], body.ChannelName, body.Concurrency)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
@@ -46,7 +52,7 @@ func (a *API) handleChannelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reports, err := a.channelStore.RunMultiSync(t.BaseURL, t.APIKey, body.ChannelName, models, body.Concurrency)
+	reports, err := a.channelStore.RunMultiSyncCtx(ctx, t.BaseURL, t.APIKey, body.ChannelName, models, body.Concurrency)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
@@ -54,9 +60,111 @@ func (a *API) handleChannelRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"reports": reports})
 }
 
+func (a *API) handleChannelRunStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		TargetBase  string   `json:"target_base"`
+		TargetKey   string   `json:"target_key"`
+		Model       string   `json:"model"`
+		Models      []string `json:"models"`
+		ChannelName string   `json:"channel_name"`
+		Concurrency int      `json:"concurrency"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
+		return
+	}
+	t := target.Resolve(a.cfg, body.TargetBase, body.TargetKey, body.Model)
+	if err := t.Validate(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+
+	models := body.Models
+	if len(models) == 0 {
+		models = []string{t.Model}
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "streaming not supported"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	mu := &sync.Mutex{}
+	done := make(chan struct{})
+	writeSSE := func(ev channeltest.StreamEvent) {
+		data, _ := json.Marshal(ev)
+		mu.Lock()
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+		mu.Unlock()
+	}
+
+	// heartbeat keeps proxies/CDNs from closing idle connections
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				mu.Lock()
+				fmt.Fprintf(w, ": ping\n\n")
+				flusher.Flush()
+				mu.Unlock()
+			case <-done:
+				return
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}()
+
+	runID := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	totalProbes := 0
+	modelProbes := make(map[string][]channeltest.ProbeInfo)
+	for _, m := range models {
+		probes := channeltest.ProbesForModel(m)
+		totalProbes += len(probes)
+		infos := make([]channeltest.ProbeInfo, len(probes))
+		for i, p := range probes {
+			infos[i] = channeltest.ProbeInfo{ID: p.ID, Label: p.Label}
+		}
+		modelProbes[m] = infos
+	}
+
+	writeSSE(channeltest.StreamEvent{
+		Type:        "start",
+		RunID:       runID,
+		Models:      models,
+		TotalProbes: totalProbes,
+		ModelProbes: modelProbes,
+	})
+
+	ctx := r.Context()
+	reports, err := a.channelStore.RunMultiStream(ctx, t.BaseURL, t.APIKey, body.ChannelName, models, body.Concurrency, writeSSE)
+	close(done)
+	if err != nil {
+		writeSSE(channeltest.StreamEvent{Type: "error", Error: err.Error()})
+		return
+	}
+
+	writeSSE(channeltest.StreamEvent{Type: "done", Reports: reports})
+}
+
 func (a *API) handleChannelHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodDelete {
-		// DELETE /api/channel/history?id=xxx — delete all history
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "use /api/channel/history/{id} to delete"})
 		return
 	}
@@ -64,13 +172,38 @@ func (a *API) handleChannelHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"history": a.channelStore.ListHistory()})
+	all := a.channelStore.ListHistory()
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	total := len(all)
+	if offset > total {
+		offset = total
+	}
+	all = all[offset:]
+	if limit > 0 && limit < len(all) {
+		all = all[:limit]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"history": all, "total": total})
 }
 
 func (a *API) handleChannelHistoryDetail(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/channel/history/")
 	if id == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "id is required"})
+		return
+	}
+	if strings.HasPrefix(id, "group/") {
+		groupID := strings.TrimPrefix(id, "group/")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		reports := a.channelStore.GetHistoryGroup(groupID)
+		if len(reports) == 0 {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"reports": reports})
 		return
 	}
 	if r.Method == http.MethodDelete {

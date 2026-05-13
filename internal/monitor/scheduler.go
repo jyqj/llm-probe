@@ -66,12 +66,12 @@ func (s *Scheduler) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
-			s.tick(now)
+			s.tick(ctx, now)
 		}
 	}
 }
 
-func (s *Scheduler) tick(now time.Time) {
+func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 	targets := s.store.EnabledTargets()
 	for _, t := range targets {
 		for _, model := range t.Models {
@@ -88,7 +88,7 @@ func (s *Scheduler) tick(now time.Time) {
 			if !s.markRunning(key) {
 				continue
 			}
-			go s.runOne(key, t, model)
+			go s.runOne(ctx, key, t, model)
 			next := now.Add(t.Interval)
 			if t.Jitter > 0 {
 				next = next.Add(time.Duration(rand.Int63n(int64(t.Jitter))))
@@ -114,12 +114,12 @@ func (s *Scheduler) clearRunning(key string) {
 	s.mu.Unlock()
 }
 
-func (s *Scheduler) runOne(key string, target *Target, model string) {
+func (s *Scheduler) runOne(ctx context.Context, key string, target *Target, model string) {
 	defer s.clearRunning(key)
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("monitor run panic", "target", target.Name, "model", model, "panic", r)
 		}
 	}()
-	s.runner.RunTarget(target, model)
+	s.runner.RunTargetCtx(ctx, target, model)
 }

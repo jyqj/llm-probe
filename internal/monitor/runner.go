@@ -46,6 +46,11 @@ func NewRunner(
 
 // RunTarget executes a monitor check for one target+model pair.
 func (r *MonitorRunner) RunTarget(target *Target, model string) *MonitorRun {
+	return r.RunTargetCtx(context.Background(), target, model)
+}
+
+// RunTargetCtx executes a monitor check with context for cancellation/timeout.
+func (r *MonitorRunner) RunTargetCtx(ctx context.Context, target *Target, model string) *MonitorRun {
 	start := time.Now()
 	run := &MonitorRun{
 		TargetID:  target.ID,
@@ -61,12 +66,14 @@ func (r *MonitorRunner) RunTarget(target *Target, model string) *MonitorRun {
 
 	switch checkType {
 	case "channel":
-		r.runChannel(target, model, run)
+		r.runChannel(ctx, target, model, run)
 	case "intelligence":
-		r.runIntelligence(target, model, run)
+		r.runIntelligence(ctx, target, model, run)
 	case "both":
-		r.runChannel(target, model, run)
-		r.runIntelligence(target, model, run)
+		r.runChannel(ctx, target, model, run)
+		if ctx.Err() == nil {
+			r.runIntelligence(ctx, target, model, run)
+		}
 	}
 
 	run.ElapsedMs = time.Since(start).Milliseconds()
@@ -93,14 +100,22 @@ func (r *MonitorRunner) RunTarget(target *Target, model string) *MonitorRun {
 
 // RunAll executes monitor checks for all models of a target.
 func (r *MonitorRunner) RunAll(target *Target) []*MonitorRun {
+	return r.RunAllCtx(context.Background(), target)
+}
+
+// RunAllCtx executes monitor checks for all models with context.
+func (r *MonitorRunner) RunAllCtx(ctx context.Context, target *Target) []*MonitorRun {
 	var runs []*MonitorRun
 	for _, model := range target.Models {
-		runs = append(runs, r.RunTarget(target, model))
+		if ctx.Err() != nil {
+			break
+		}
+		runs = append(runs, r.RunTargetCtx(ctx, target, model))
 	}
 	return runs
 }
 
-func (r *MonitorRunner) runChannel(target *Target, model string, run *MonitorRun) {
+func (r *MonitorRunner) runChannel(ctx context.Context, target *Target, model string, run *MonitorRun) {
 	report, err := r.channelRunner.RunMonitor(target.BaseURL, target.APIKey, model)
 	if err != nil {
 		run.Error = err.Error()
@@ -133,7 +148,7 @@ func (r *MonitorRunner) runChannel(target *Target, model string, run *MonitorRun
 	}
 }
 
-func (r *MonitorRunner) runIntelligence(target *Target, model string, run *MonitorRun) {
+func (r *MonitorRunner) runIntelligence(ctx context.Context, target *Target, model string, run *MonitorRun) {
 	if r.intelligenceRunner == nil || r.registry == nil {
 		run.IntelligenceError = "intelligence runner not configured"
 		return
@@ -164,7 +179,6 @@ func (r *MonitorRunner) runIntelligence(target *Target, model string, run *Monit
 		threshold = 1.0
 	}
 
-	ctx := context.Background()
 	report, err := r.intelligenceRunner.Run(ctx, ds, intelligence.RunRequest{
 		TargetBase:     target.BaseURL,
 		TargetKey:      target.APIKey,

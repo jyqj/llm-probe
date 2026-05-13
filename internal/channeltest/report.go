@@ -20,6 +20,7 @@ type CheckResult struct {
 // Report is the full result of a channel test suite run.
 type Report struct {
 	ID            string           `json:"id"`
+	RunGroup      string           `json:"run_group,omitempty"`
 	ChannelName   string           `json:"channel_name,omitempty"`
 	Target        string           `json:"target"`
 	Model         string           `json:"model"`

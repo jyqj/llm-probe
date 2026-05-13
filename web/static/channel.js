@@ -183,19 +183,29 @@ async function consumeChannelSSE(runId, resp) {
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop();
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      try { handleChannelSSE(runId, JSON.parse(line.slice(6))); } catch {}
+  const watchdog = createSSEWatchdog(45000, () => {
+    if (run.state === 'running') {
+      toast('SSE 连接可能已断开 · 服务端仍在执行', 'warn');
     }
-  }
-  if (buf.startsWith('data: ')) {
-    try { handleChannelSSE(runId, JSON.parse(buf.slice(6))); } catch {}
+  });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      watchdog.reset();
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try { handleChannelSSE(runId, JSON.parse(line.slice(6))); } catch {}
+      }
+    }
+    if (buf.startsWith('data: ')) {
+      try { handleChannelSSE(runId, JSON.parse(buf.slice(6))); } catch {}
+    }
+  } finally {
+    watchdog.stop();
   }
 }
 
@@ -207,8 +217,18 @@ function handleChannelSSE(runId, ev) {
       if (ev.models) run.models = ev.models;
       run.progressTotal = ev.total_probes || 0;
       if (ev.run_id && ev.run_id !== runId) {
-        // backend reassigned id — keep tempId as alias
         run.realRunId = ev.run_id;
+      }
+      if (ev.model_probes) {
+        for (const [model, probeList] of Object.entries(ev.model_probes)) {
+          const pm = run.perModel[model] ||= { status: 'pending', probes: {}, probeOrder: [], report: null };
+          probeList.forEach(p => {
+            if (!pm.probes[p.id]) {
+              pm.probes[p.id] = { state: 'pending', probe_id: p.id, label: p.label, checks: [], latency_ms: null };
+              pm.probeOrder.push(p.id);
+            }
+          });
+        }
       }
       maybeRerender(runId);
       break;
@@ -250,6 +270,16 @@ function handleChannelSSE(runId, ev) {
         pm.report = rep;
         pm.status = 'done';
       });
+      if (ev.reports && ev.reports.length && ev.reports[0].id) {
+        const backendId = ev.reports[0].id;
+        State.liveRuns[backendId] = run;
+        const route = parseRoute(location.hash);
+        if (route.id === runId) {
+          history.replaceState(null, '', '#/channel/run/' + backendId);
+        }
+        runId = backendId;
+      }
+      toast('渠道检测完成', 'good');
       maybeRerender(runId);
       break;
     case 'error':
@@ -283,12 +313,21 @@ async function runChannelSync(runId, payload, ac) {
     const pm = run.perModel[rep.model] ||= { status: 'done', probes: {}, probeOrder: [], report: rep };
     pm.report = rep;
     pm.status = 'done';
-    // synthesise probes from probe_results
     (rep.probe_results || []).forEach(p => {
       pm.probes[p.probe_id] = Object.assign({}, p, { state: 'done' });
       if (!pm.probeOrder.includes(p.probe_id)) pm.probeOrder.push(p.probe_id);
     });
   });
+  // Redirect to backend ID for persistence across refresh
+  if (reports.length && reports[0].id) {
+    const backendId = reports[0].id;
+    State.liveRuns[backendId] = run;
+    const route = parseRoute(location.hash);
+    if (route.id === runId) {
+      history.replaceState(null, '', '#/channel/run/' + backendId);
+      runId = backendId;
+    }
+  }
   maybeRerender(runId);
 }
 
@@ -298,15 +337,17 @@ function cancelChannelRun(runId) {
   if (run.aborter) run.aborter.abort();
   run.state = 'cancelled';
   maybeRerender(runId);
-  toast('已取消', 'good');
+  toast(run.progressTotal > 0 ? '已取消' : '已断开 · 服务端可能仍在执行', 'warn');
 }
 
 /* ─── Re-render guard — only re-render if route still on this run ─── */
 let _renderTimer = null;
 function maybeRerender(runId) {
   const route = parseRoute(location.hash);
+  // Refresh rail when run state changes (clears stale RUNNING entries)
+  const run = State.liveRuns[runId];
+  if (run && run.state !== 'running') paintRail(route);
   if (route.app !== 'channel' || route.kind !== 'run' || route.id !== runId) return;
-  // batch
   if (_renderTimer) return;
   _renderTimer = requestAnimationFrame(() => {
     _renderTimer = null;
@@ -320,13 +361,23 @@ function maybeRerender(runId) {
 
 async function renderChannelRunRoute(runId, model, anchor) {
   if (State.liveRuns[runId]) { renderRunPage(runId, model, anchor); return; }
-  // fetch from history
   const v = $('#view');
   v.innerHTML = '<div class="empty"><div class="glyph">/</div>加载历史中...</div>';
   try {
     const data = await api('/api/channel/history/' + encodeURIComponent(runId));
-    // wrap into liveRuns shape (state=done, single-model history)
-    const reports = Array.isArray(data) ? data : (data.reports ? data.reports : [data]);
+    let reports = Array.isArray(data) ? data : (data.reports ? data.reports : [data]);
+
+    // If report belongs to a multi-model run group, load all grouped reports
+    const runGroup = reports[0] && reports[0].run_group;
+    if (runGroup && reports.length === 1) {
+      try {
+        const groupData = await api('/api/channel/history/group/' + encodeURIComponent(runGroup));
+        if (groupData.reports && groupData.reports.length > 1) {
+          reports = groupData.reports;
+        }
+      } catch (_) { /* fall back to single report */ }
+    }
+
     const run = {
       kind: 'channel', state: 'done', historical: true,
       models: reports.map(r => r.model),
@@ -368,6 +419,7 @@ function renderRunPage(runId, focusedModel, anchor) {
   const crumbs = [{ label: 'Channel', href: '#/channel' }];
   if (run.historical) crumbs.push({ label: '历史', href: '#/channel/history' });
   crumbs.push({ cur: run.channelName || (run.target || '').replace(/^https?:\/\//, '').split('/')[0] || 'run' });
+  if (run.state !== 'running') crumbs.push({ cur: '报告' });
   if (models.length > 1) crumbs.push({ cur: focusedModel, mono: true });
 
   const actions = el('div', { class: 'crumb-actions' });
@@ -386,14 +438,17 @@ function renderRunPage(runId, focusedModel, anchor) {
   // ─── Status bar ───
   v.appendChild(renderRunHeader(run, runId));
 
-  // ─── Progress strip (only while running) ───
-  if (run.state === 'running') v.appendChild(renderProgressStrip(run));
-
   // ─── Multi-model overview grid ───
   if (models.length > 1) v.appendChild(renderModelGrid(run, models, focusedModel, runId));
 
-  // ─── Focused model detail ───
-  v.appendChild(renderModelDetail(run, focusedModel, runId, anchor));
+  // ─── Running: probe board · Done: report ───
+  const pm = run.perModel[focusedModel] || { status: 'pending' };
+  if (run.state === 'running' && pm.status !== 'done') {
+    v.appendChild(renderProbeBoard(run, focusedModel, runId));
+  } else {
+    if (run.state !== 'running') v.appendChild(renderReportBanner(run));
+    v.appendChild(renderModelDetail(run, focusedModel, runId, anchor));
+  }
 }
 
 function renderRunHeader(run, runId) {
@@ -414,8 +469,13 @@ function renderRunHeader(run, runId) {
   cells.push(['MODELS', el('span', { class: 'mono' }, (run.models || []).length)]);
   if (run.startedAt) cells.push(['STARTED', el('span', { class: 'mono', style: { fontSize: '11px' } }, fmtTimeAgo(new Date(run.startedAt).toISOString()))]);
   if (run.state !== 'running') {
-    const total = run.finalReports ? (run.finalReports[0] && run.finalReports[0].elapsed_ms) || 0 : 0;
-    cells.push(['ELAPSED', el('span', { class: 'mono' }, total ? fmtMs(total) : '—')]);
+    let elapsed = 0;
+    if (run.finishedAt && run.startedAt) {
+      elapsed = run.finishedAt - run.startedAt;
+    } else if (run.finalReports && run.finalReports.length) {
+      elapsed = Math.max(...run.finalReports.map(r => r.elapsed_ms || 0));
+    }
+    cells.push(['ELAPSED', el('span', { class: 'mono' }, elapsed ? fmtMs(elapsed) : '—')]);
   } else {
     const now = Date.now();
     cells.push(['ELAPSED', el('span', { class: 'mono', id: 'liveElapsed' }, fmtMs(now - run.startedAt))]);
@@ -453,23 +513,199 @@ function renderRunHeader(run, runId) {
 }
 
 function renderProgressStrip(run) {
-  const pct = run.progressTotal > 0 ? Math.round(run.progressDone / run.progressTotal * 100) : Math.min(95, (Date.now() - run.startedAt) / 600);
+  const hasRealProgress = run.progressTotal > 0;
+  const pct = hasRealProgress ? Math.round(run.progressDone / run.progressTotal * 100) : 0;
+  const meta = hasRealProgress
+    ? `${run.progressDone} / ${run.progressTotal} probes`
+    : '同步模式 · 无探针级进度';
   return el('div', { class: 'panel', style: { marginBottom: '12px' } },
     el('div', { class: 'panel-head' },
       el('h3', null, '运行进度'),
-      el('span', { class: 'meta' },
-        run.progressTotal > 0
-          ? `${run.progressDone} / ${run.progressTotal} probes`
-          : '等待后端事件…(SSE 未启用时回退为不定进度)'),
+      el('span', { class: 'meta' }, meta),
       el('div', { class: 'spacer' }),
-      el('span', { class: 'mono', style: { color: 'var(--ink-3)', fontSize: '11px' } }, Math.round(pct) + '%'),
+      hasRealProgress
+        ? el('span', { class: 'mono', style: { color: 'var(--ink-3)', fontSize: '11px' } }, pct + '%')
+        : null,
     ),
     el('div', { class: 'panel-body', style: { padding: '12px 14px' } },
-      el('div', { class: 'progress' },
-        el('div', { class: 'progress-fill', style: { width: pct + '%' } })
+      el('div', { class: 'progress' + (hasRealProgress ? '' : ' indeterminate') },
+        hasRealProgress
+          ? el('div', { class: 'progress-fill', style: { width: pct + '%' } })
+          : null
       ),
     ),
   );
+}
+
+/* ─── Probe board — live progress for running state ─── */
+
+const CAT_ORDER = ['fingerprint', 'structural', 'signature', 'behavioral', 'multimodal'];
+
+function collectLiveCatScores(pm) {
+  const cats = {};
+  CAT_ORDER.forEach(c => { cats[c] = { passed: 0, total: 0 }; });
+  for (const pid of pm.probeOrder) {
+    const probe = pm.probes[pid];
+    if (!probe || probe.state !== 'done' || !probe.checks) continue;
+    probe.checks.forEach(c => {
+      const cat = catOf(c.name);
+      if (!cats[cat]) cats[cat] = { passed: 0, total: 0 };
+      cats[cat].total++;
+      if (c.pass) cats[cat].passed++;
+    });
+  }
+  return cats;
+}
+
+function probePrimaryCat(probe) {
+  if (probe.checks && probe.checks.length > 0) {
+    const counts = {};
+    probe.checks.forEach(c => { const cat = catOf(c.name); counts[cat] = (counts[cat] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  }
+  const FALLBACK = {
+    precheck:'structural', tag_replay:'fingerprint', mini_probe:'fingerprint',
+    identity_probe:'behavioral', self_intro:'structural', tool_use:'structural',
+    logic:'behavioral', hidden_prompt:'fingerprint', image_ocr:'multimodal',
+    pdf_extract:'multimodal', magic_refusal:'behavioral', effort_thinking:'signature',
+    signature_reject:'signature', bash_tool:'structural', minimal_tokens:'fingerprint',
+  };
+  return FALLBACK[probe.probe_id] || 'other';
+}
+
+function renderProbeBoard(run, model, runId) {
+  const pm = run.perModel[model] || { status: 'pending', probes: {}, probeOrder: [] };
+  const order = pm.probeOrder.slice();
+  const doneCount = order.filter(pid => pm.probes[pid] && pm.probes[pid].state === 'done').length;
+  const runningCount = order.filter(pid => pm.probes[pid] && pm.probes[pid].state === 'running').length;
+  const totalCount = order.length;
+  const pct = totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0;
+
+  const panel = el('div', { class: 'panel' });
+
+  panel.appendChild(el('div', { class: 'panel-head' },
+    el('h3', null, '探针进度'),
+    el('span', { class: 'meta' },
+      doneCount + ' / ' + totalCount + ' probes' + (runningCount > 0 ? ' · ' + runningCount + ' 并发' : '')),
+    el('div', { class: 'spacer' }),
+    el('span', { class: 'mono', style: { color: 'var(--ink-3)', fontSize: '11px' } }, pct + '%'),
+    el('span', { class: 'pill pill-running', style: { marginLeft: '8px' } },
+      el('span', { class: 'led' }), '运行中'),
+  ));
+
+  // progress bar
+  const progWrap = el('div', { style: { padding: '10px 14px', borderBottom: '1px solid var(--line)' } });
+  progWrap.appendChild(el('div', { class: 'progress' + (totalCount === 0 ? ' indeterminate' : '') },
+    totalCount > 0 ? el('div', { class: 'progress-fill', style: { width: pct + '%' } }) : null));
+  panel.appendChild(progWrap);
+
+  // live category scores
+  if (doneCount > 0) {
+    panel.appendChild(renderLiveCatStrip(pm));
+  }
+
+  // probe rows
+  const body = el('div', { class: 'panel-body', style: { padding: '0' } });
+  const board = el('div', { class: 'probe-board' });
+
+  if (order.length === 0) {
+    board.appendChild(el('div', { class: 'empty', style: { padding: '24px' } }, '等待探针启动…'));
+  } else {
+    order.forEach(pid => {
+      const probe = pm.probes[pid] || { state: 'pending', probe_id: pid, label: pid, checks: [] };
+      board.appendChild(renderProbeBoardRow(probe));
+    });
+  }
+
+  body.appendChild(board);
+  panel.appendChild(body);
+  return panel;
+}
+
+function renderLiveCatStrip(pm) {
+  const cats = collectLiveCatScores(pm);
+  const wrap = el('div', { style: { padding: '10px 14px', borderBottom: '1px solid var(--line)', background: 'var(--panel-2)' } });
+  const strip = el('div', { class: 'live-cat-strip' });
+
+  CAT_ORDER.forEach(cat => {
+    const d = cats[cat];
+    const color = CAT_COLOR[cat] || 'var(--ink-4)';
+    const pctVal = d.total > 0 ? Math.round(d.passed / d.total * 100) : -1;
+    const pctColor = pctVal >= 80 ? 'var(--good-ink)' : pctVal >= 50 ? 'var(--warn-ink)' : pctVal >= 0 ? 'var(--bad-ink)' : 'var(--ink-5)';
+
+    strip.appendChild(el('div', { class: 'live-cat-row' },
+      el('span', { class: 'swatch', style: { background: color } }),
+      el('span', { class: 'name' }, CAT_LABEL[cat] || cat),
+      el('div', { class: 'track' },
+        d.total > 0 ? el('div', { class: 'fill', style: { width: pctVal + '%', background: color } }) : null),
+      el('span', { class: 'frac' }, d.total > 0 ? d.passed + '/' + d.total : '—'),
+      el('span', { class: 'pct', style: { color: pctColor } }, pctVal >= 0 ? pctVal + '%' : ''),
+    ));
+  });
+
+  wrap.appendChild(strip);
+  return wrap;
+}
+
+function renderProbeBoardRow(probe) {
+  const checks = probe.checks || [];
+  const passed = checks.filter(c => c.pass).length;
+  const failed = checks.filter(c => !c.pass).length;
+  const total = checks.length;
+  const isRunning = probe.state === 'running';
+  const isDone = probe.state === 'done';
+  const isPending = probe.state === 'pending';
+  const allPass = total > 0 && passed === total;
+
+  const dotClass = isRunning ? 'run' : isDone ? (allPass ? 'pass' : 'fail') : 'pending';
+  const cat = probePrimaryCat(probe);
+  const catBorder = CAT_COLOR[cat] || 'transparent';
+
+  const row = el('div', {
+    class: 'pb-row' + (isPending ? ' pending' : '') + (isRunning ? ' running' : ''),
+    style: { borderLeftColor: catBorder },
+  });
+
+  row.appendChild(el('span', { class: 'led-dot ' + dotClass }));
+  row.appendChild(el('div', { class: 'pb-name' },
+    el('span', { class: 'label' }, probe.label || probe.probe_id),
+    el('span', { class: 'id' }, probe.probe_id)));
+
+  if (isDone) {
+    row.appendChild(el('span', { class: 'pb-checks ' + (allPass ? 'allpass' : 'hasfail') },
+      passed + '/' + total));
+    row.appendChild(el('span', { class: 'pb-latency' }, fmtMs(probe.latency_ms)));
+  } else if (isRunning) {
+    row.appendChild(el('span', { class: 'pb-checks running' }, '…'));
+    row.appendChild(el('span', { class: 'pb-latency' }));
+  } else {
+    row.appendChild(el('span', { class: 'pb-checks' }));
+    row.appendChild(el('span', { class: 'pb-latency' }));
+  }
+
+  if (isDone && failed > 0) {
+    const failStrip = el('div', { class: 'pb-fails' });
+    checks.filter(c => !c.pass).slice(0, 3).forEach(c => {
+      const item = el('div', { class: 'pb-fail-item' },
+        el('span', { class: 'led-dot fail', style: { width: '5px', height: '5px' } }),
+        el('span', { class: 'name' }, c.label || c.name));
+      if (c.expected || c.actual) {
+        const exp = el('span', { class: 'expect-pair' });
+        if (c.expected) exp.appendChild(el('span', { class: 'exp' }, c.expected));
+        if (c.actual) exp.appendChild(el('span', { class: 'act' }, c.actual));
+        item.appendChild(exp);
+      } else if (c.detail) {
+        item.appendChild(el('span', { class: 'actual' }, c.detail.slice(0, 80)));
+      }
+      failStrip.appendChild(item);
+    });
+    if (failed > 3) {
+      failStrip.appendChild(el('div', { class: 'pb-fail-more' }, '+' + (failed - 3) + ' more'));
+    }
+    row.appendChild(failStrip);
+  }
+
+  return row;
 }
 
 function renderModelGrid(run, models, focusedModel, runId) {
@@ -495,7 +731,11 @@ function renderModelCard(model, pm, run, isActive, runId) {
   });
 
   if (pm.status !== 'done') {
-    card.appendChild(el('div', { class: 'running-indicator' }, pm.status === 'running' ? '运行中' : 'pending'));
+    const runningModel = Object.entries(run.perModel).find(([, p]) => p.status === 'running');
+    const hint = pm.status === 'running' ? '运行中'
+      : runningModel ? '排队中 · 当前 ' + runningModel[0].split('-').pop()
+      : '等待';
+    card.appendChild(el('div', { class: 'running-indicator' }, hint));
   }
   const rep = pm.report;
   const sum = rep ? reportSummary(rep) : null;
@@ -530,20 +770,39 @@ function renderModelCard(model, pm, run, isActive, runId) {
     });
     card.appendChild(cats);
   } else {
-    // skeleton
+    const doneCount = pm.probeOrder.filter(pid => pm.probes[pid] && pm.probes[pid].state === 'done').length;
+    const startedCount = pm.probeOrder.length;
     card.appendChild(el('div', { class: 'score-line' },
-      el('span', { class: 'num skel', style: { width: '60px', height: '28px', display: 'inline-block' } }, ''),
+      el('span', { class: 'num', style: { color: 'var(--ink-4)', fontSize: '14px' } },
+        startedCount > 0 ? doneCount + '/' + startedCount : '—'),
+      el('span', { class: 'denom' }, startedCount > 0 ? ' probes' : ''),
     ));
-    const cats = el('div', { class: 'cats' });
-    for (let i = 0; i < 5; i++) cats.appendChild(el('div', { class: 'cat-bar' },
-      el('span', { class: 'label skel', style: { height: '8px' } }, ' '),
-      el('div', { class: 'track' }, el('div', { class: 'fill skel', style: { width: '40%', background: 'var(--ink-5)' } })),
-      el('span', { class: 'pct skel', style: { height: '8px' } }, ' '),
-    ));
-    card.appendChild(cats);
+    if (startedCount > 0) {
+      const pct = Math.round(doneCount / startedCount * 100);
+      card.appendChild(el('div', { style: { padding: '4px 10px 8px' } },
+        el('div', { class: 'progress', style: { height: '3px' } },
+          el('div', { class: 'progress-fill', style: { width: pct + '%' } }))));
+    } else {
+      card.appendChild(el('div', { style: { padding: '8px 10px', fontSize: '11px', color: 'var(--ink-4)' } },
+        '等待探针启动…'));
+    }
   }
 
   return card;
+}
+
+function renderReportBanner(run) {
+  const elapsed = run.finishedAt && run.startedAt ? fmtMs(run.finishedAt - run.startedAt)
+    : run.finalReports && run.finalReports.length ? fmtMs(Math.max(...run.finalReports.map(r => r.elapsed_ms || 0)))
+    : '—';
+  const ts = run.startedAt ? fmtTime(new Date(run.startedAt).toISOString()) : '';
+  return el('div', { class: 'report-banner' },
+    el('div', { class: 'report-banner-left' },
+      el('span', { class: 'report-badge' }, '检测报告'),
+      el('span', { class: 'report-meta' }, (run.models || []).length + ' 模型 · ' + elapsed),
+    ),
+    ts ? el('span', { class: 'report-ts' }, ts) : null,
+  );
 }
 
 function renderModelDetail(run, model, runId, anchor) {
@@ -555,23 +814,6 @@ function renderModelDetail(run, model, runId, anchor) {
   // ─── verdict-hero (first thing user sees) ───
   if (sum) {
     wrap.appendChild(renderVerdictHero(sum, model, runId));
-  } else if (run.state === 'running') {
-    // skeleton hero
-    const sk = el('div', { class: 'verdict-hero' },
-      el('div', { class: 'verdict-side' },
-        el('div', { class: 'label' }, model + ' · running'),
-        el('div', { class: 'head' },
-          el('span', { class: 'grade skel', style: { width: '60px', height: '38px', display: 'inline-block' } }, ' '),
-          el('span', { class: 'score skel', style: { width: '60px', height: '12px', display: 'inline-block' } }, ' '),
-        ),
-        el('div', { class: 'title' }, '正在探测…'),
-      ),
-      el('div', { class: 'fail-side' },
-        el('div', { class: 'head' }, el('span', null, '失败检查项'), el('span', { class: 'spacer' }), el('span', { class: 'count' }, '–')),
-        el('div', { class: 'fail-list' }, el('div', { class: 'muted', style: { fontSize: '12px', padding: '8px 4px' } }, '等待 probe 结果…')),
-      ),
-    );
-    wrap.appendChild(sk);
   }
 
   // ─── Score + categories (compact, below the verdict) ───

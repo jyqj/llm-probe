@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"detector-service/internal/intelligence"
 	"detector-service/internal/target"
@@ -116,6 +117,15 @@ func (a *API) handleDatasetRun(w http.ResponseWriter, r *http.Request, ds intell
 		return
 	}
 	req.TargetBase, req.TargetKey, req.Model = t.BaseURL, t.APIKey, t.Model
+
+	lockKey := req.TargetBase + "#" + req.Model
+	mu := a.getBenchLock(lockKey)
+	if !mu.TryLock() {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "benchmark already running for this target+model"})
+		return
+	}
+	defer mu.Unlock()
+
 	report, err := a.intelligenceRunner.Run(r.Context(), ds, req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -140,6 +150,14 @@ func (a *API) handleDatasetStream(w http.ResponseWriter, r *http.Request, ds int
 	}
 	req.TargetBase, req.TargetKey, req.Model = t.BaseURL, t.APIKey, t.Model
 
+	lockKey := req.TargetBase + "#" + req.Model
+	benchMu := a.getBenchLock(lockKey)
+	if !benchMu.TryLock() {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "benchmark already running for this target+model"})
+		return
+	}
+	defer benchMu.Unlock()
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "streaming not supported"})
@@ -154,6 +172,7 @@ func (a *API) handleDatasetStream(w http.ResponseWriter, r *http.Request, ds int
 	flusher.Flush()
 
 	mu := &sync.Mutex{}
+	done := make(chan struct{})
 	writeSSE := func(event intelligence.StreamEvent) {
 		data, _ := json.Marshal(event)
 		mu.Lock()
@@ -162,9 +181,28 @@ func (a *API) handleDatasetStream(w http.ResponseWriter, r *http.Request, ds int
 		mu.Unlock()
 	}
 
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				mu.Lock()
+				fmt.Fprintf(w, ": ping\n\n")
+				flusher.Flush()
+				mu.Unlock()
+			case <-done:
+				return
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}()
+
 	report, err := a.intelligenceRunner.RunStream(r.Context(), ds, req, func(ev intelligence.StreamEvent) {
 		writeSSE(ev)
 	})
+	close(done)
 	if err != nil {
 		writeSSE(intelligence.StreamEvent{Type: "error", ErrorMsg: err.Error()})
 	}
@@ -241,7 +279,18 @@ func (a *API) handleIntelligenceHistory(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"history": a.intelligenceHistory.List()})
+	all := a.intelligenceHistory.List()
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	total := len(all)
+	if offset > total {
+		offset = total
+	}
+	all = all[offset:]
+	if limit > 0 && limit < len(all) {
+		all = all[:limit]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"history": all, "total": total})
 }
 
 func (a *API) handleIntelligenceHistoryDetail(w http.ResponseWriter, r *http.Request) {

@@ -1,12 +1,36 @@
 package channeltest
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"detector-service/internal/fingerprint"
 )
+
+// ProbeInfo is a lightweight probe descriptor sent in the start event.
+type ProbeInfo struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// StreamEvent is emitted during a streaming channel test run.
+// Field names match the frontend SSE protocol in channel.js.
+type StreamEvent struct {
+	Type        string                  `json:"type"`                   // start, probe_start, probe_done, model_done, done, error
+	RunID       string                  `json:"run_id,omitempty"`
+	Model       string                  `json:"model,omitempty"`
+	Models      []string                `json:"models,omitempty"`
+	TotalProbes int                     `json:"total_probes,omitempty"`
+	ModelProbes map[string][]ProbeInfo  `json:"model_probes,omitempty"`
+	ProbeID     string                  `json:"probe_id,omitempty"`
+	Label       string                  `json:"label,omitempty"`
+	Probe       *ProbeResult            `json:"probe,omitempty"`
+	Report      *Report                 `json:"report,omitempty"`
+	Reports     []*Report               `json:"reports,omitempty"`
+	Error       string                  `json:"error,omitempty"`
+}
 
 // ProbeResult tracks a single probe's execution.
 type ProbeResult struct {
@@ -30,10 +54,28 @@ type ModelReport struct {
 // Run runs the channel test suite against a target for a single model.
 // concurrency=0 means sequential.
 func (p *Runner) Run(targetBase, targetKey, model string, concurrency int) (*Report, error) {
+	return p.RunCtx(context.Background(), targetBase, targetKey, model, concurrency)
+}
+
+// RunCtx runs the suite with context support for cancellation.
+func (p *Runner) RunCtx(ctx context.Context, targetBase, targetKey, model string, concurrency int) (*Report, error) {
+	return p.runInternal(ctx, targetBase, targetKey, model, concurrency, nil)
+}
+
+// RunStream runs the suite with streaming events via onEvent callback.
+func (p *Runner) RunStream(ctx context.Context, targetBase, targetKey, model string, concurrency int, onEvent func(StreamEvent)) (*Report, error) {
+	return p.runInternal(ctx, targetBase, targetKey, model, concurrency, onEvent)
+}
+
+func (p *Runner) runInternal(ctx context.Context, targetBase, targetKey, model string, concurrency int, onEvent func(StreamEvent)) (*Report, error) {
 	startedAt := time.Now()
 
 	probes := ProbesForModel(model)
-	results := p.executeProbes(probes, targetBase, targetKey, model, concurrency)
+	results := p.executeProbesCtx(ctx, probes, targetBase, targetKey, model, concurrency, onEvent)
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	var checks []CheckResult
 	for _, r := range results {
@@ -75,30 +117,81 @@ func (p *Runner) Run(targetBase, targetKey, model string, concurrency int) (*Rep
 
 // RunMulti runs the suite for multiple models against the same target.
 func (p *Runner) RunMulti(targetBase, targetKey string, models []string, concurrency int) ([]*Report, error) {
+	return p.RunMultiCtx(context.Background(), targetBase, targetKey, models, concurrency)
+}
+
+// RunMultiCtx runs for multiple models with context support.
+func (p *Runner) RunMultiCtx(ctx context.Context, targetBase, targetKey string, models []string, concurrency int) ([]*Report, error) {
+	return p.runMultiInternal(ctx, targetBase, targetKey, models, concurrency, nil)
+}
+
+// RunMultiStream runs for multiple models with streaming events.
+func (p *Runner) RunMultiStream(ctx context.Context, targetBase, targetKey string, models []string, concurrency int, onEvent func(StreamEvent)) ([]*Report, error) {
+	return p.runMultiInternal(ctx, targetBase, targetKey, models, concurrency, onEvent)
+}
+
+func (p *Runner) runMultiInternal(ctx context.Context, targetBase, targetKey string, models []string, concurrency int, onEvent func(StreamEvent)) ([]*Report, error) {
 	var reports []*Report
 	for _, model := range models {
-		report, err := p.Run(targetBase, targetKey, model, concurrency)
+		if err := ctx.Err(); err != nil {
+			return reports, err
+		}
+		report, err := p.runInternal(ctx, targetBase, targetKey, model, concurrency, onEvent)
 		if err != nil {
+			if ctx.Err() != nil {
+				return reports, ctx.Err()
+			}
 			reports = append(reports, &Report{
 				Model:     model,
 				Target:    targetBase,
 				Timestamp: time.Now(),
 				Summary:   "error: " + err.Error(),
 			})
+			if onEvent != nil {
+				onEvent(StreamEvent{Type: "model_done", Model: model, Report: reports[len(reports)-1]})
+			}
 			continue
 		}
 		reports = append(reports, report)
+		if onEvent != nil {
+			onEvent(StreamEvent{Type: "model_done", Model: model, Report: report})
+		}
 	}
 	return reports, nil
 }
 
-// executeProbes runs probes with given concurrency.
+// executeProbes runs probes with given concurrency (legacy, no context).
 func (p *Runner) executeProbes(probes []*Probe, base, key, model string, concurrency int) []ProbeResult {
+	return p.executeProbesCtx(context.Background(), probes, base, key, model, concurrency, nil)
+}
+
+// executeProbesCtx runs probes with context + optional event streaming.
+func (p *Runner) executeProbesCtx(ctx context.Context, probes []*Probe, base, key, model string, concurrency int, onEvent func(StreamEvent)) []ProbeResult {
 	results := make([]ProbeResult, len(probes))
+
+	emit := func(ev StreamEvent) {
+		if onEvent != nil {
+			ev.Model = model
+			onEvent(ev)
+		}
+	}
+
+	runOne := func(i int, probe *Probe) {
+		if ctx.Err() != nil {
+			results[i] = ProbeResult{
+				ProbeID: probe.ID, Label: probe.Label,
+				Checks: []CheckResult{{Name: probe.ID, Pass: false, Detail: "cancelled"}},
+			}
+			return
+		}
+		emit(StreamEvent{Type: "probe_start", ProbeID: probe.ID, Label: probe.Label})
+		results[i] = p.runSingleProbe(ctx, probe, base, key, model)
+		emit(StreamEvent{Type: "probe_done", ProbeID: probe.ID, Probe: &results[i]})
+	}
 
 	if concurrency <= 0 {
 		for i, probe := range probes {
-			results[i] = p.runSingleProbe(probe, base, key, model)
+			runOne(i, probe)
 		}
 		return results
 	}
@@ -106,7 +199,7 @@ func (p *Runner) executeProbes(probes []*Probe, base, key, model string, concurr
 	// Required probes run first sequentially
 	idx := 0
 	for idx < len(probes) && probes[idx].Required {
-		results[idx] = p.runSingleProbe(probes[idx], base, key, model)
+		runOne(idx, probes[idx])
 		idx++
 	}
 
@@ -122,7 +215,16 @@ func (p *Runner) executeProbes(probes []*Probe, base, key, model string, concurr
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				optResults[ii] = p.runSingleProbe(pb, base, key, model)
+				if ctx.Err() != nil {
+					optResults[ii] = ProbeResult{
+						ProbeID: pb.ID, Label: pb.Label,
+						Checks: []CheckResult{{Name: pb.ID, Pass: false, Detail: "cancelled"}},
+					}
+					return
+				}
+				emit(StreamEvent{Type: "probe_start", ProbeID: pb.ID, Label: pb.Label})
+				optResults[ii] = p.runSingleProbe(ctx, pb, base, key, model)
+				emit(StreamEvent{Type: "probe_done", ProbeID: pb.ID, Probe: &optResults[ii]})
 			}(i, probe)
 		}
 		wg.Wait()
@@ -134,8 +236,9 @@ func (p *Runner) executeProbes(probes []*Probe, base, key, model string, concurr
 	return results
 }
 
-func (p *Runner) runSingleProbe(probe *Probe, base, key, model string) ProbeResult {
+func (p *Runner) runSingleProbe(ctx context.Context, probe *Probe, base, key, model string) ProbeResult {
 	rec := p.withRecorder()
+	rec.ctx = ctx
 	start := time.Now()
 	checks, err := probe.Run(rec, base, key, model)
 	elapsed := time.Since(start).Milliseconds()
