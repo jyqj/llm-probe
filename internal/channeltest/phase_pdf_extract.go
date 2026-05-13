@@ -2,11 +2,13 @@ package channeltest
 
 import "detector-service/internal/channeltest/data"
 
-// ════════════════════════════════════════════════════════════
-//  Phase 2i: pdf_extract
-//  cctest 07_pdf_extract: thinking=adaptive, 28 tools, full system,
-//  max_tokens=1024, stream=true, document + text content
-// ════════════════════════════════════════════════════════════
+var probePDFExtract = &Probe{
+	ID: "pdf_extract", Label: "PDF 提取探针",
+	Tags:      []string{"heavy"},
+	EstTokens: 25000,
+	Checks:    []string{"pdf_extract"},
+	Run:       (*Runner).runPDFExtract,
+}
 
 func (p *Runner) runPDFExtract(targetBase, targetKey, model string) ([]CheckResult, error) {
 	pdfText := data.RandomOCRText(8)
@@ -49,6 +51,7 @@ func (p *Runner) runPDFExtract(targetBase, targetKey, model string) ([]CheckResu
 
 	sse, start, delta := readSSE(resp.Body)
 	full := merge(start, delta, sse)
+	p.recordStreamResult(full)
 	if full == nil {
 		return []CheckResult{{Name: "pdf_extract", Pass: false, Detail: "parse failed"}}, nil
 	}

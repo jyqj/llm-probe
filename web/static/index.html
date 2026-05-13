@@ -44,19 +44,15 @@
   <aside class="side">
     <div class="side-section">
       <div class="side-label">Channel</div>
-      <a class="side-link channel-active" onclick="showChannelSub('overview')">
+      <a class="side-link active" id="sideConfig" onclick="showChannelView('config')">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polygon points="5,3 19,12 5,21" fill="currentColor" stroke="none"/></svg>
+        新建检测
+      </a>
+      <a class="side-link" id="sideReport" onclick="showChannelView('report')">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
-        本次检测
+        检测报告
       </a>
-      <a class="side-link" onclick="showChannelSub('checks')">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
-        检查项详情
-      </a>
-      <a class="side-link" onclick="showChannelSub('raw')">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>
-        原始数据
-      </a>
-      <a class="side-link" onclick="showChannelSub('history')">
+      <a class="side-link" id="sideHistory" onclick="showChannelView('history')">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         历史记录
       </a>
@@ -65,53 +61,62 @@
       <div class="avatar">P</div>
       <div>
         <div style="color:var(--ink-2);font-weight:500">llm-probe</div>
-        <div>v2.0 · 渠道测试</div>
+        <div>v3.0 · 渠道测试</div>
       </div>
     </div>
   </aside>
 
   <main class="main">
-    <div class="page-head">
-      <div class="eyebrow">CHANNEL · 渠道测试</div>
-      <h1 class="h1">这条 API 渠道<em>真的是</em> Claude 吗?</h1>
-      <p class="page-sub">通过指纹、结构、签名、行为、多模态五个维度的探测,核验你接入的渠道是否真正连接到 Anthropic 官方。</p>
-    </div>
 
-    <!-- Target config -->
-    <div class="target-bar">
-      <div class="target-field" style="flex:2">
-        <div class="target-label">Target Base URL</div>
-        <input id="targetBase" class="input mono" placeholder="https://api.example.com/v1/messages">
+    <!-- ═══ VIEW: CONFIG (新建检测) ═══ -->
+    <div id="viewConfig">
+      <div class="page-head">
+        <div class="eyebrow">CHANNEL · 渠道测试</div>
+        <h1 class="h1">这条 API 渠道<em>真的是</em> Claude 吗?</h1>
+        <p class="page-sub">通过指纹、结构、签名、行为、多模态五个维度的探测,核验你接入的渠道是否真正连接到 Anthropic 官方。</p>
       </div>
-      <div class="target-field" style="flex:1.5">
-        <div class="target-label">API Key</div>
-        <input id="targetKey" class="input mono" type="password" placeholder="sk-...">
-      </div>
-      <div class="target-field" style="flex:0.8">
-        <div class="target-label">Model</div>
-        <select id="model" class="input mono">
-          <option value="claude-opus-4-6">claude-opus-4-6</option>
-          <option value="claude-opus-4-7">claude-opus-4-7</option>
-          <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-        </select>
-      </div>
-    </div>
 
-    <!-- Run controls -->
-    <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:20px">
-      <button class="btn btn-channel" onclick="runChannel()" id="btnChannel">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-        运行渠道测试
-      </button>
-    </div>
+      <div class="target-bar">
+        <div class="target-field" style="flex:2">
+          <div class="target-label">Target Base URL</div>
+          <input id="targetBase" class="input mono" placeholder="https://api.example.com">
+        </div>
+        <div class="target-field" style="flex:1.5">
+          <div class="target-label">API Key</div>
+          <input id="targetKey" class="input mono" type="password" placeholder="sk-...">
+        </div>
+        <div class="target-field" style="flex:1">
+          <div class="target-label">Channel Name</div>
+          <input id="channelName" class="input" placeholder="(auto)">
+        </div>
+      </div>
+      <div class="target-bar" style="margin-top:-8px">
+        <div class="target-field" style="flex:2">
+          <div class="target-label">Models</div>
+          <div id="modelCheckboxes" class="model-chips">
+            <label class="model-chip"><input type="checkbox" value="claude-sonnet-4-6" checked> sonnet-4-6</label>
+            <label class="model-chip"><input type="checkbox" value="claude-opus-4-6"> opus-4-6</label>
+            <label class="model-chip"><input type="checkbox" value="claude-opus-4-7"> opus-4-7</label>
+            <label class="model-chip"><input type="checkbox" value="claude-opus-4-5"> opus-4-5</label>
+            <label class="model-chip"><input type="checkbox" value="claude-haiku-4-5"> haiku-4-5</label>
+          </div>
+        </div>
+        <div class="target-field" style="flex:0.5">
+          <div class="target-label">Concurrency</div>
+          <input id="concurrency" class="input mono" type="number" min="0" max="10" value="2" style="width:60px">
+        </div>
+      </div>
 
-    <!-- Loading -->
-    <!-- ═══ Sub: 本次检测（概览） ═══ -->
-    <div id="channelSubOverview">
+      <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:20px 0">
+        <button class="btn btn-channel" onclick="runChannel()" id="btnChannel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+          运行渠道测试
+        </button>
+      </div>
+
       <div id="channelLoading" class="hidden">
         <div class="loading"><div class="spinner"></div> 正在运行渠道测试...</div>
       </div>
-
       <div id="channelError" class="hidden">
         <div class="empty" style="border:1px solid var(--bad);background:var(--bad-bg,#fff5f5)">
           <div class="ico" style="color:var(--bad)">
@@ -121,18 +126,20 @@
           <p id="channelErrorMsg" style="color:var(--bad);word-break:break-all;max-width:600px"></p>
         </div>
       </div>
+    </div>
 
-      <div id="channelPlaceholder">
-        <div class="empty">
-          <div class="ico">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
-          </div>
-          <h4>填写 Target 后开始</h4>
-          <p>在上方填写 Target Base URL 和 API Key,然后点击「运行渠道测试」。</p>
-        </div>
+    <!-- ═══ VIEW: REPORT (检测报告) ═══ -->
+    <div id="viewReport" class="hidden">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <button class="btn btn-quiet btn-sm" onclick="showChannelView('config')">&larr; 返回</button>
+        <div class="eyebrow" style="margin:0" id="reportTitle">检测报告</div>
+        <div style="flex:1"></div>
+        <button class="btn btn-quiet btn-sm" onclick="exportChannel()">导出 JSON</button>
       </div>
 
-      <div id="channelResult" class="hidden">
+      <div id="channelModelTabs"></div>
+
+      <div id="channelResult">
         <div class="score-hero">
           <div class="ring-wrap">
             <svg class="ring-svg" width="220" height="220" viewBox="0 0 220 220">
@@ -176,60 +183,38 @@
             <div class="fix-list" id="channelFixList"></div>
           </div>
         </div>
-      </div>
-    </div>
 
-    <!-- ═══ Sub: 检查项详情 ═══ -->
-    <div id="channelSubChecks" class="hidden">
-      <div id="channelChecksEmpty" class="empty">
-        <div class="ico">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
-        </div>
-        <h4>暂无检查数据</h4>
-        <p>先运行一次渠道测试,检查项详情将在此展示。</p>
-      </div>
-      <div id="channelChecksContent" class="hidden">
+        <!-- Probe-grouped checks with expandable details -->
         <div class="card flush">
           <div class="card-head">
-            <h3>检查项详情</h3>
+            <h3>探针详情</h3>
             <div style="display:flex;gap:8px;align-items:center">
               <div class="seg">
                 <button class="active" onclick="filterChecks('all',this)">全部</button>
                 <button onclick="filterChecks('fail',this)">仅失败</button>
                 <button onclick="filterChecks('pass',this)">仅通过</button>
               </div>
-              <button class="btn btn-quiet btn-sm" onclick="exportChannel()">导出 JSON</button>
             </div>
           </div>
-          <div id="channelChecks"></div>
+          <div id="channelProbes"></div>
         </div>
+
+        <!-- Raw JSON -->
+        <details style="margin-top:16px">
+          <summary class="btn btn-quiet btn-sm" style="cursor:pointer;margin-bottom:8px">原始 JSON</summary>
+          <pre class="json-out" id="rawChannel" style="max-height:500px;overflow:auto">暂无数据</pre>
+        </details>
       </div>
     </div>
 
-    <!-- ═══ Sub: 原始数据 ═══ -->
-    <div id="channelSubRaw" class="hidden">
-      <div id="channelRawEmpty" class="empty">
-        <div class="ico">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>
-        </div>
-        <h4>暂无原始数据</h4>
-        <p>先运行一次渠道测试,原始 JSON 响应将在此展示。</p>
+    <!-- ═══ VIEW: HISTORY (历史记录) ═══ -->
+    <div id="viewHistory" class="hidden">
+      <div class="page-head">
+        <div class="eyebrow">HISTORY · 检测历史</div>
+        <h1 class="h1">历史<em>检测记录</em></h1>
+        <p class="page-sub">点击任意记录查看完整报告。支持重命名与删除。</p>
       </div>
-      <div id="channelRawContent" class="hidden">
-        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-          <button class="btn btn-quiet btn-sm" onclick="exportChannel()">导出 JSON</button>
-        </div>
-        <pre class="json-out" id="rawChannel">暂无数据</pre>
-      </div>
-    </div>
-
-    <!-- ═══ Sub: 历史记录 ═══ -->
-    <div id="channelSubHistory" class="hidden">
       <div class="card flush">
-        <div class="card-head">
-          <h3>渠道测试历史</h3>
-          <span class="muted" style="font-size:12px">点击查看详情 · 支持删除</span>
-        </div>
         <div id="channelHistoryList" style="padding:14px 18px">
           <div class="muted">加载中...</div>
         </div>

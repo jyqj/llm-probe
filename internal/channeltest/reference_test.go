@@ -144,8 +144,7 @@ var testSpecs = []testSpec{
 	{
 		name: "10_magic_refusal",
 		runChecks: func(body map[string]any, headers http.Header, model string) []CheckResult {
-			// magic_refusal check has been removed; just verify stop_reason is valid
-			return []CheckResult{checkStopReason(body)}
+			return []CheckResult{checkMagicRefusal(body), checkStopReason(body)}
 		},
 	},
 }

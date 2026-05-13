@@ -2,10 +2,13 @@ package channeltest
 
 import "detector-service/internal/channeltest/data"
 
-// ════════════════════════════════════════════════════════════
-//  Phase 2e: logic_reasoning
-//  cctest 02_logic_reasoning: thinking=adaptive, 28 tools, full system
-// ════════════════════════════════════════════════════════════
+var probeLogic = &Probe{
+	ID: "logic", Label: "逻辑推理探针",
+	Tags:      []string{"heavy"},
+	EstTokens: 25000,
+	Checks:    []string{"logic_answer"},
+	Run:       (*Runner).runLogicProbe,
+}
 
 func (p *Runner) runLogicProbe(targetBase, targetKey, model string) ([]CheckResult, error) {
 	body := toJSON(map[string]any{
@@ -27,6 +30,7 @@ func (p *Runner) runLogicProbe(targetBase, targetKey, model string) ([]CheckResu
 
 	sse, start, delta := readSSE(resp.Body)
 	full := merge(start, delta, sse)
+	p.recordStreamResult(full)
 	if full == nil {
 		return []CheckResult{{Name: "logic_answer", Pass: false, Detail: "parse failed"}}, nil
 	}

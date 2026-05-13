@@ -9,22 +9,40 @@ import (
 func checkUsageStructure(body map[string]any) CheckResult {
 	usage, _ := body["usage"].(map[string]any)
 	if usage == nil {
-		return CheckResult{Name: "usage_structure", Pass: false, Detail: "no usage object", Fix: "body_rewrite"}
+		return CheckResult{Name: "usage_structure", Pass: false,
+			Expected: "usage object with cache_creation, service_tier",
+			Actual:   "no usage object",
+			Detail:   "no usage object", Fix: "body_rewrite"}
 	}
 	cc, hasCC := usage["cache_creation"].(map[string]any)
 	if !hasCC {
-		return CheckResult{Name: "usage_structure", Pass: false, Detail: "missing cache_creation nested object", Fix: "body_rewrite"}
+		return CheckResult{Name: "usage_structure", Pass: false,
+			Expected: "usage.cache_creation as nested object",
+			Actual:   "cache_creation missing or not an object",
+			Detail:   "missing cache_creation nested object", Fix: "body_rewrite"}
 	}
 	if _, ok := cc["ephemeral_5m_input_tokens"]; !ok {
-		return CheckResult{Name: "usage_structure", Pass: false, Detail: "missing ephemeral_5m_input_tokens in cache_creation", Fix: "body_rewrite"}
+		return CheckResult{Name: "usage_structure", Pass: false,
+			Expected: "cache_creation.ephemeral_5m_input_tokens present",
+			Actual:   "ephemeral_5m_input_tokens missing",
+			Detail:   "missing ephemeral_5m_input_tokens in cache_creation", Fix: "body_rewrite"}
 	}
 	if _, ok := cc["ephemeral_1h_input_tokens"]; !ok {
-		return CheckResult{Name: "usage_structure", Pass: false, Detail: "missing ephemeral_1h_input_tokens in cache_creation", Fix: "body_rewrite"}
+		return CheckResult{Name: "usage_structure", Pass: false,
+			Expected: "cache_creation.ephemeral_1h_input_tokens present",
+			Actual:   "ephemeral_1h_input_tokens missing",
+			Detail:   "missing ephemeral_1h_input_tokens in cache_creation", Fix: "body_rewrite"}
 	}
 	if _, ok := usage["service_tier"]; !ok {
-		return CheckResult{Name: "usage_structure", Pass: false, Detail: "missing service_tier", Fix: "body_rewrite"}
+		return CheckResult{Name: "usage_structure", Pass: false,
+			Expected: "usage.service_tier present",
+			Actual:   "service_tier missing",
+			Detail:   "missing service_tier", Fix: "body_rewrite"}
 	}
-	return CheckResult{Name: "usage_structure", Pass: true, Detail: "usage structure OK"}
+	return CheckResult{Name: "usage_structure", Pass: true,
+		Expected: "usage with cache_creation + service_tier",
+		Actual:   "all present",
+		Detail:   "usage structure OK"}
 }
 
 // checkFieldOrder checks if JSON field order matches official format.
@@ -47,18 +65,30 @@ func checkFieldOrder(rawBody []byte) CheckResult {
 	modelIdx := strings.Index(target, `"model"`)
 	idIdx := strings.Index(target, `"id"`)
 	if modelIdx < 0 || idIdx < 0 {
-		return CheckResult{Name: "field_order", Pass: false, Detail: "missing model or id", Fix: "body_rewrite"}
+		return CheckResult{Name: "field_order", Pass: false,
+			Expected: "both model and id fields present",
+			Actual:   fmt.Sprintf("model found=%v, id found=%v", modelIdx >= 0, idIdx >= 0),
+			Detail:   "missing model or id", Fix: "body_rewrite"}
 	}
 	if modelIdx > idIdx {
-		return CheckResult{Name: "field_order", Pass: false, Detail: "id appears before model", Fix: "body_rewrite"}
+		return CheckResult{Name: "field_order", Pass: false,
+			Expected: "model before id",
+			Actual:   "id before model",
+			Detail:   "id appears before model", Fix: "body_rewrite"}
 	}
 	// content should appear before stop_reason
 	contentIdx := strings.Index(target, `"content"`)
 	stopIdx := strings.Index(target, `"stop_reason"`)
 	if contentIdx > 0 && stopIdx > 0 && contentIdx > stopIdx {
-		return CheckResult{Name: "field_order", Pass: false, Detail: "stop_reason before content", Fix: "body_rewrite"}
+		return CheckResult{Name: "field_order", Pass: false,
+			Expected: "content before stop_reason",
+			Actual:   "stop_reason before content",
+			Detail:   "stop_reason before content", Fix: "body_rewrite"}
 	}
-	return CheckResult{Name: "field_order", Pass: true, Detail: "field order OK"}
+	return CheckResult{Name: "field_order", Pass: true,
+		Expected: "model → id, content → stop_reason",
+		Actual:   "order correct",
+		Detail:   "field order OK"}
 }
 
 // checkHeaders verifies Anthropic-style ratelimit and org headers.
@@ -66,20 +96,35 @@ func checkFieldOrder(rawBody []byte) CheckResult {
 func checkModelName(body map[string]any, expectedModel string) CheckResult {
 	model, _ := body["model"].(string)
 	if model == "" {
-		return CheckResult{Name: "model_name", Pass: false, Detail: "no model field in response", Fix: "body_rewrite"}
+		return CheckResult{Name: "model_name", Pass: false,
+			Expected: expectedModel,
+			Actual:   "(empty)",
+			Detail:   "no model field in response", Fix: "body_rewrite"}
 	}
 	// The response model should match what was requested
 	if model == expectedModel {
-		return CheckResult{Name: "model_name", Pass: true, Detail: "model=" + model}
+		return CheckResult{Name: "model_name", Pass: true,
+			Expected: expectedModel,
+			Actual:   model,
+			Detail:   "model=" + model}
 	}
 	// Partial match: check if the core model name is in there (e.g. opus-4-6 vs claude-opus-4-6-20250415)
 	if strings.Contains(model, "opus") && strings.Contains(expectedModel, "opus") {
-		return CheckResult{Name: "model_name", Pass: true, Detail: "model=" + model + " (variant of requested)"}
+		return CheckResult{Name: "model_name", Pass: true,
+			Expected: expectedModel,
+			Actual:   model,
+			Detail:   "model=" + model + " (variant of requested)"}
 	}
 	if strings.Contains(model, "sonnet") && strings.Contains(expectedModel, "sonnet") {
-		return CheckResult{Name: "model_name", Pass: true, Detail: "model=" + model + " (variant of requested)"}
+		return CheckResult{Name: "model_name", Pass: true,
+			Expected: expectedModel,
+			Actual:   model,
+			Detail:   "model=" + model + " (variant of requested)"}
 	}
-	return CheckResult{Name: "model_name", Pass: false, Detail: "model=" + model + " expected=" + expectedModel, Fix: "body_rewrite"}
+	return CheckResult{Name: "model_name", Pass: false,
+		Expected: expectedModel,
+		Actual:   model,
+		Detail:   "model=" + model + " expected=" + expectedModel, Fix: "body_rewrite"}
 }
 
 // checkSSETailing checks the SSE stream ending whitespace pattern.
@@ -88,7 +133,10 @@ func checkModelName(body map[string]any, expectedModel string) CheckResult {
 func checkStopReason(body map[string]any) CheckResult {
 	sr, _ := body["stop_reason"].(string)
 	if sr == "" {
-		return CheckResult{Name: "stop_reason", Pass: false, Detail: "stop_reason is empty/null", Fix: "body_rewrite"}
+		return CheckResult{Name: "stop_reason", Pass: false,
+			Expected: "one of: end_turn, max_tokens, stop_sequence, tool_use, server_tool_use, refusal",
+			Actual:   "(empty/null)",
+			Detail:   "stop_reason is empty/null", Fix: "body_rewrite"}
 	}
 	valid := map[string]bool{
 		"end_turn":        true,
@@ -99,9 +147,15 @@ func checkStopReason(body map[string]any) CheckResult {
 		"refusal":         true,
 	}
 	if valid[sr] {
-		return CheckResult{Name: "stop_reason", Pass: true, Detail: "stop_reason=" + sr}
+		return CheckResult{Name: "stop_reason", Pass: true,
+			Expected: "valid stop_reason value",
+			Actual:   sr,
+			Detail:   "stop_reason=" + sr}
 	}
-	return CheckResult{Name: "stop_reason", Pass: false, Detail: "unexpected stop_reason=" + sr, Fix: "body_rewrite"}
+	return CheckResult{Name: "stop_reason", Pass: false,
+		Expected: "one of: end_turn, max_tokens, stop_sequence, tool_use, server_tool_use, refusal",
+		Actual:   sr,
+		Detail:   "unexpected stop_reason=" + sr, Fix: "body_rewrite"}
 }
 
 // checkToolStopReason verifies stop_reason is "tool_use" when tool_choice forced a tool.
@@ -118,27 +172,43 @@ func checkNonStreamBody(body map[string]any) []CheckResult {
 			missing = append(missing, f)
 		}
 	}
+	expectedFields := strings.Join(required, ", ")
 	if len(missing) > 0 {
 		checks = append(checks, CheckResult{Name: "nonstream_fields", Pass: false,
-			Detail: "missing fields: " + strings.Join(missing, ", "), Fix: "body_rewrite"})
+			Expected: expectedFields,
+			Actual:   "missing: " + strings.Join(missing, ", "),
+			Detail:   "missing fields: " + strings.Join(missing, ", "), Fix: "body_rewrite"})
 	} else {
-		checks = append(checks, CheckResult{Name: "nonstream_fields", Pass: true, Detail: "all required fields present"})
+		checks = append(checks, CheckResult{Name: "nonstream_fields", Pass: true,
+			Expected: expectedFields,
+			Actual:   "all present",
+			Detail:   "all required fields present"})
 	}
 
 	// type must be "message"
 	if tp, _ := body["type"].(string); tp != "message" {
 		checks = append(checks, CheckResult{Name: "nonstream_type", Pass: false,
-			Detail: "type=" + tp + " expected message", Fix: "body_rewrite"})
+			Expected: "message",
+			Actual:   tp,
+			Detail:   "type=" + tp + " expected message", Fix: "body_rewrite"})
 	} else {
-		checks = append(checks, CheckResult{Name: "nonstream_type", Pass: true, Detail: "type=message OK"})
+		checks = append(checks, CheckResult{Name: "nonstream_type", Pass: true,
+			Expected: "message",
+			Actual:   "message",
+			Detail:   "type=message OK"})
 	}
 
 	// role must be "assistant"
 	if role, _ := body["role"].(string); role != "assistant" {
 		checks = append(checks, CheckResult{Name: "nonstream_role", Pass: false,
-			Detail: "role=" + role + " expected assistant", Fix: "body_rewrite"})
+			Expected: "assistant",
+			Actual:   role,
+			Detail:   "role=" + role + " expected assistant", Fix: "body_rewrite"})
 	} else {
-		checks = append(checks, CheckResult{Name: "nonstream_role", Pass: true, Detail: "role=assistant OK"})
+		checks = append(checks, CheckResult{Name: "nonstream_role", Pass: true,
+			Expected: "assistant",
+			Actual:   "assistant",
+			Detail:   "role=assistant OK"})
 	}
 
 	return checks
@@ -152,7 +222,10 @@ func checkNonStreamBody(body map[string]any) []CheckResult {
 func checkUsageFieldsComplete(body map[string]any) CheckResult {
 	usage, _ := body["usage"].(map[string]any)
 	if usage == nil {
-		return CheckResult{Name: "usage_fields_complete", Pass: false, Detail: "no usage object", Fix: "body_rewrite"}
+		return CheckResult{Name: "usage_fields_complete", Pass: false,
+			Expected: "usage object with 7 fields",
+			Actual:   "no usage object",
+			Detail:   "no usage object", Fix: "body_rewrite"}
 	}
 	required := []string{
 		"input_tokens", "output_tokens",
@@ -165,13 +238,18 @@ func checkUsageFieldsComplete(body map[string]any) CheckResult {
 			missing = append(missing, f)
 		}
 	}
+	expectedAll := strings.Join(required, ", ")
 	if len(missing) > 0 {
 		return CheckResult{Name: "usage_fields_complete", Pass: false,
-			Detail: fmt.Sprintf("usage missing %d/%d fields: %s", len(missing), len(required), strings.Join(missing, ", ")),
-			Fix:    "body_rewrite"}
+			Expected: expectedAll,
+			Actual:   fmt.Sprintf("missing: %s", strings.Join(missing, ", ")),
+			Detail:   fmt.Sprintf("usage missing %d/%d fields: %s", len(missing), len(required), strings.Join(missing, ", ")),
+			Fix:      "body_rewrite"}
 	}
 	return CheckResult{Name: "usage_fields_complete", Pass: true,
-		Detail: fmt.Sprintf("usage has all %d fields", len(required))}
+		Expected: expectedAll,
+		Actual:   fmt.Sprintf("all %d fields present", len(required)),
+		Detail:   fmt.Sprintf("usage has all %d fields", len(required))}
 }
 
 // checkCacheCreationComplete verifies cache_creation has both ephemeral fields.
@@ -192,13 +270,21 @@ func checkBodyKeyOrder(rawBody []byte) CheckResult {
 	modelIdx := strings.Index(target, `"model"`)
 	contentIdx := strings.Index(target, `"content"`)
 	if modelIdx < 0 || contentIdx < 0 {
-		return CheckResult{Name: "body_key_order", Pass: true, Detail: "cannot determine order (skip)"}
+		return CheckResult{Name: "body_key_order", Pass: true,
+			Expected: "model before content",
+			Actual:   "cannot determine (fields not found)",
+			Detail:   "cannot determine order (skip)"}
 	}
 	if contentIdx < modelIdx {
 		return CheckResult{Name: "body_key_order", Pass: false,
-			Detail: "content appears before model (proxy reordering)", Fix: "body_rewrite"}
+			Expected: "model before content",
+			Actual:   "content before model",
+			Detail:   "content appears before model (proxy reordering)", Fix: "body_rewrite"}
 	}
-	return CheckResult{Name: "body_key_order", Pass: true, Detail: "model before content OK"}
+	return CheckResult{Name: "body_key_order", Pass: true,
+		Expected: "model before content",
+		Actual:   "model before content",
+		Detail:   "model before content OK"}
 }
 
 // checkServerToolUsage verifies usage contains server_tool_use stats when web_search was used.
@@ -208,18 +294,29 @@ func checkBodyKeyOrder(rawBody []byte) CheckResult {
 func checkStopSequenceNull(body map[string]any) CheckResult {
 	sr, _ := body["stop_reason"].(string)
 	if sr == "stop_sequence" {
-		return CheckResult{Name: "stop_sequence_null", Pass: true, Detail: "stop_reason=stop_sequence (skip)"}
+		return CheckResult{Name: "stop_sequence_null", Pass: true,
+			Expected: "stop_sequence field present (non-null allowed when stop_reason=stop_sequence)",
+			Actual:   "stop_reason=stop_sequence, check skipped",
+			Detail:   "stop_reason=stop_sequence (skip)"}
 	}
 	// stop_sequence should exist as a key (even if null)
 	val, exists := body["stop_sequence"]
 	if !exists {
-		return CheckResult{Name: "stop_sequence_null", Pass: false, Detail: "stop_sequence field missing", Fix: "body_rewrite"}
+		return CheckResult{Name: "stop_sequence_null", Pass: false,
+			Expected: "stop_sequence field present with null value",
+			Actual:   "stop_sequence field missing",
+			Detail:   "stop_sequence field missing", Fix: "body_rewrite"}
 	}
 	if val != nil {
 		return CheckResult{Name: "stop_sequence_null", Pass: false,
-			Detail: fmt.Sprintf("stop_sequence should be null, got %v", val), Fix: "body_rewrite"}
+			Expected: "null",
+			Actual:   fmt.Sprintf("%v", val),
+			Detail:   fmt.Sprintf("stop_sequence should be null, got %v", val), Fix: "body_rewrite"}
 	}
-	return CheckResult{Name: "stop_sequence_null", Pass: true, Detail: "stop_sequence=null OK"}
+	return CheckResult{Name: "stop_sequence_null", Pass: true,
+		Expected: "null",
+		Actual:   "null",
+		Detail:   "stop_sequence=null OK"}
 }
 
 // checkSSEPingPosition verifies ping event comes after the first content_block_start.

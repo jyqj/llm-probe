@@ -1,10 +1,12 @@
 package channeltest
 
-// ════════════════════════════════════════════════════════════
-//  Phase 2g: hidden_prompt
-//  Send a bare request with NO system prompt. If input_tokens is abnormally
-//  high (>15 for "hi"), the upstream has injected a hidden system prompt.
-// ════════════════════════════════════════════════════════════
+var probeHiddenPrompt = &Probe{
+	ID: "hidden_prompt", Label: "隐藏 Prompt 检测",
+	Tags:      []string{"monitor"},
+	EstTokens: 20,
+	Checks:    []string{"hidden_prompt"},
+	Run:       (*Runner).runHiddenPrompt,
+}
 
 func (p *Runner) runHiddenPrompt(targetBase, targetKey, model string) ([]CheckResult, error) {
 	body := toJSON(map[string]any{

@@ -14,10 +14,12 @@ func (a *API) handleChannelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		TargetBase string `json:"target_base"`
-		TargetKey  string `json:"target_key"`
-		Model      string `json:"model"`
-		Quick      bool   `json:"quick"`
+		TargetBase  string   `json:"target_base"`
+		TargetKey   string   `json:"target_key"`
+		Model       string   `json:"model"`
+		Models      []string `json:"models"`
+		ChannelName string   `json:"channel_name"`
+		Concurrency int      `json:"concurrency"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
@@ -28,12 +30,28 @@ func (a *API) handleChannelRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	report, err := a.channelStore.RunSync(t.BaseURL, t.APIKey, t.Model, body.Quick)
+
+	models := body.Models
+	if len(models) == 0 {
+		models = []string{t.Model}
+	}
+
+	if len(models) == 1 {
+		report, err := a.channelStore.RunSync(t.BaseURL, t.APIKey, models[0], body.ChannelName, body.Concurrency)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, report)
+		return
+	}
+
+	reports, err := a.channelStore.RunMultiSync(t.BaseURL, t.APIKey, body.ChannelName, models, body.Concurrency)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, report)
+	writeJSON(w, http.StatusOK, map[string]any{"reports": reports})
 }
 
 func (a *API) handleChannelHistory(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +76,21 @@ func (a *API) handleChannelHistoryDetail(w http.ResponseWriter, r *http.Request)
 	if r.Method == http.MethodDelete {
 		if a.channelStore.DeleteHistory(id) {
 			writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+		} else {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		}
+		return
+	}
+	if r.Method == "PATCH" {
+		var body struct {
+			ChannelName string `json:"channel_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
+			return
+		}
+		if a.channelStore.UpdateHistoryName(id, body.ChannelName) {
+			writeJSON(w, http.StatusOK, map[string]any{"updated": true})
 		} else {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 		}

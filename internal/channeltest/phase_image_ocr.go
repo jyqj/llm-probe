@@ -2,11 +2,13 @@ package channeltest
 
 import "detector-service/internal/channeltest/data"
 
-// ════════════════════════════════════════════════════════════
-//  Phase 2f: image_ocr
-//  cctest 06_image_ocr: thinking=adaptive, 28 tools, full system,
-//  max_tokens=1024, stream=true, image + text content
-// ════════════════════════════════════════════════════════════
+var probeImageOCR = &Probe{
+	ID: "image_ocr", Label: "图片 OCR 探针",
+	Tags:      []string{"heavy"},
+	EstTokens: 25000,
+	Checks:    []string{"image_ocr"},
+	Run:       (*Runner).runImageOCR,
+}
 
 func (p *Runner) runImageOCR(targetBase, targetKey, model string) ([]CheckResult, error) {
 	ocrText := data.RandomOCRText(8)
@@ -49,6 +51,7 @@ func (p *Runner) runImageOCR(targetBase, targetKey, model string) ([]CheckResult
 
 	sse, start, delta := readSSE(resp.Body)
 	full := merge(start, delta, sse)
+	p.recordStreamResult(full)
 	if full == nil {
 		return []CheckResult{{Name: "image_ocr", Pass: false, Detail: "parse failed"}}, nil
 	}

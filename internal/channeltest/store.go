@@ -167,7 +167,7 @@ func (s *Store) triggerRunAsync(upstreamBase, upstreamKey, model string) {
 		}
 		s.logger.Info("auto-channel-test started", "upstream", upstreamBase, "model", model)
 
-		report, err := s.runner.Run(upstreamBase, upstreamKey, model, true)
+		report, err := s.runner.Run(upstreamBase, upstreamKey, model, 2)
 
 		s.mu.Lock()
 		entry.Running = false
@@ -191,12 +191,47 @@ func (s *Store) triggerRunAsync(upstreamBase, upstreamKey, model string) {
 	}()
 }
 
-// RunSync runs a synchronous channel test and stores the result.
-func (s *Store) RunSync(upstreamBase, upstreamKey, model string, quick bool) (*Report, error) {
-	report, err := s.runner.Run(upstreamBase, upstreamKey, model, quick)
+// RunSync runs a synchronous channel test for a single model and stores the result.
+func (s *Store) RunSync(upstreamBase, upstreamKey, model, channelName string, concurrency int) (*Report, error) {
+	report, err := s.runner.Run(upstreamBase, upstreamKey, model, concurrency)
 	if err != nil {
 		return nil, err
 	}
+	if channelName != "" {
+		report.ChannelName = channelName
+	} else {
+		report.ChannelName = AutoChannelName(upstreamBase, model)
+	}
 	s.SetResult(upstreamBase, report)
 	return report, nil
+}
+
+// RunMultiSync runs tests for multiple models against one target.
+func (s *Store) RunMultiSync(upstreamBase, upstreamKey, channelName string, models []string, concurrency int) ([]*Report, error) {
+	reports, err := s.runner.RunMulti(upstreamBase, upstreamKey, models, concurrency)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range reports {
+		if channelName != "" {
+			r.ChannelName = channelName
+		} else {
+			r.ChannelName = AutoChannelName(upstreamBase, r.Model)
+		}
+		s.SetResult(upstreamBase+"#"+r.Model, r)
+	}
+	return reports, nil
+}
+
+// UpdateHistoryName updates the channel name on an existing history record.
+func (s *Store) UpdateHistoryName(id, name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.history {
+		if r.ID == id {
+			r.ChannelName = name
+			return true
+		}
+	}
+	return false
 }

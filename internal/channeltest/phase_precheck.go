@@ -1,10 +1,19 @@
 package channeltest
 
-// ════════════════════════════════════════════════════════════
-//  Phase 1a: precheck
-//  cctest 00_precheck: bare "say ok", max_tokens=20, stream=true
-//  NO system, NO tools, NO metadata, NO thinking
-// ════════════════════════════════════════════════════════════
+var probePrecheck = &Probe{
+	ID: "precheck", Label: "基线流式探针",
+	Required: true,
+	Tags:     []string{"monitor"},
+	EstTokens: 500,
+	Checks: []string{
+		"headers", "request_id", "x_new_api_version", "cf_headers",
+		"server_timing", "cf_ray_format", "cookie_domain", "server_header",
+		"sse_done", "sse_event_order", "sse_tailing", "delta_usage_slim",
+		"sse_ping_position", "message_start_output_zero",
+		"container", "bedrock_state", "cache_small_probe",
+	},
+	Run: (*Runner).runPrecheck,
+}
 
 func (p *Runner) runPrecheck(targetBase, targetKey, model string) ([]CheckResult, error) {
 	body := toJSON(map[string]any{

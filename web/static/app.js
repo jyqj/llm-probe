@@ -49,18 +49,19 @@ function switchApp(name) {
   if (name === 'settings') updateConnStatus();
 }
 
+function showChannelView(view) {
+  ['viewConfig', 'viewReport', 'viewHistory'].forEach(id => {
+    document.getElementById(id).classList.toggle('hidden', id !== 'view' + view.charAt(0).toUpperCase() + view.slice(1));
+  });
+  document.querySelectorAll('[data-app-pane="channel"] .side-link').forEach(link => {
+    link.classList.toggle('active', link.id === 'side' + view.charAt(0).toUpperCase() + view.slice(1));
+  });
+  if (view === 'history') loadChannelHistory();
+}
+
 function showChannelSub(sub) {
-  ['Overview', 'Checks', 'Raw', 'History'].forEach(s => {
-    const el = document.getElementById('channelSub' + s);
-    if (el) el.classList.toggle('hidden', s.toLowerCase() !== sub);
-  });
-  // Update sidebar active state
-  document.querySelectorAll('[data-app-pane="channel"] .side-link').forEach((link, i) => {
-    const subs = ['overview', 'checks', 'raw', 'history'];
-    link.classList.toggle('channel-active', subs[i] === sub);
-    link.classList.toggle('active', false);
-  });
-  if (sub === 'history') loadChannelHistory();
+  if (sub === 'overview') showChannelView('report');
+  else if (sub === 'history') showChannelView('history');
 }
 
 /* ─── API Helpers ─── */
@@ -70,11 +71,19 @@ function headers() {
   if (t) h['X-Admin-Token'] = t;
   return h;
 }
+function getSelectedModels() {
+  return [...document.querySelectorAll('#modelCheckboxes input:checked')].map(cb => cb.value);
+}
+
 function targetPayload() {
+  const models = getSelectedModels();
   return {
     target_base: document.getElementById('targetBase').value.trim(),
     target_key: document.getElementById('targetKey').value.trim(),
-    model: document.getElementById('model').value.trim()
+    model: models[0] || 'claude-sonnet-4-6',
+    models: models.length > 1 ? models : undefined,
+    channel_name: document.getElementById('channelName').value.trim(),
+    concurrency: parseInt(document.getElementById('concurrency').value) || 0
   };
 }
 async function api(url, opt = {}) {
@@ -129,9 +138,15 @@ const checkCatMap = {
   citations_present:'structural',body_key_order:'structural',server_tool_usage:'structural',
   signature:'signature',signature_length:'signature',thinking_present:'signature',
   thinking_order:'signature',thinking_display_omitted:'signature',no_thinking_leak:'signature',
+  effort_high_thinking:'signature',effort_high_signature:'signature',
+  effort_medium_no_think:'signature',effort_low_no_think:'signature',
+  signature_empty_rejected:'signature',
   tag_replay:'behavioral',identity_response:'behavioral',identity_no_leak:'behavioral',
   identity_platform:'behavioral',poison_answer:'behavioral',logic_answer:'behavioral',
-  tool_forced_compliance:'behavioral',
+  tool_forced_compliance:'behavioral',magic_refusal:'behavioral',
+  intelligence_answer:'behavioral',
+  bash_stop_reason:'structural',bash_tool_name:'structural',bash_tool_rejected:'structural',
+  minimal_input_tokens:'fingerprint',minimal_output_tokens:'fingerprint',
   image_ocr:'multimodal',pdf_extract:'multimodal'
 };
 function guessCategory(name) { return checkCatMap[name] || 'other'; }
@@ -140,17 +155,24 @@ function guessCategory(name) { return checkCatMap[name] || 'other'; }
 async function runChannel() {
   const btn = document.getElementById('btnChannel');
   btn.disabled = true;
-  showChannelSub('overview');
-  document.getElementById('channelPlaceholder').classList.add('hidden');
-  document.getElementById('channelResult').classList.add('hidden');
+  document.getElementById('channelError').classList.add('hidden');
   document.getElementById('channelLoading').classList.remove('hidden');
 
   try {
-    document.getElementById('channelError').classList.add('hidden');
-    const p = {...targetPayload(), quick: false};
+    const p = targetPayload();
     const data = await api('/api/channel/run', {method: 'POST', body: JSON.stringify(p)});
-    lastChannelResult = data;
-    renderChannelResult(data);
+    if (data.reports) {
+      lastChannelResult = data.reports[0];
+      window._multiReports = data.reports;
+      renderChannelResult(data.reports[0]);
+      renderModelTabs(data.reports);
+    } else {
+      lastChannelResult = data;
+      window._multiReports = null;
+      renderChannelResult(data);
+      document.getElementById('channelModelTabs').innerHTML = '';
+    }
+    showChannelView('report');
   } catch (e) {
     const msg = typeof e === 'string' ? e : (e && e.error ? e.error : JSON.stringify(e));
     document.getElementById('channelErrorMsg').textContent = msg;
@@ -193,9 +215,19 @@ function renderChannelResult(data) {
     document.getElementById('channelSummaryDesc').textContent = data.summary || '';
 
     // Score meta
+    const billing = data.billing;
+    const billingHtml = billing
+      ? `<div class="score-meta-item"><div class="k">est. cost</div><div class="v">$${billing.total_cost.toFixed(4)}</div></div>
+         <div class="score-meta-item"><div class="k">price ratio</div><div class="v">${billing.price_ratio.toFixed(1)}x</div></div>`
+      : '';
+    const probeLatency = (data.probe_results || []).length > 0
+      ? `<div class="score-meta-item"><div class="k">avg latency</div><div class="v">${Math.round((data.probe_results || []).reduce((s,r) => s+r.latency_ms, 0) / (data.probe_results || []).length)} ms</div></div>`
+      : '';
     document.getElementById('channelScoreMeta').innerHTML = `
+      <div class="score-meta-item"><div class="k">model</div><div class="v mono" style="font-size:12px">${esc(data.model || '-')}</div></div>
       <div class="score-meta-item"><div class="k">checks</div><div class="v">${passed} / ${checks.length}</div></div>
       <div class="score-meta-item"><div class="k">elapsed</div><div class="v">${((data.elapsed_ms || 0) / 1000).toFixed(1)} s</div></div>
+      ${probeLatency}${billingHtml}
       <div class="score-meta-item"><div class="k">target</div><div class="v mono" style="font-size:12px">${esc(data.target || '-')}</div></div>
     `;
 
@@ -214,18 +246,112 @@ function renderChannelResult(data) {
   const failures = checks.filter(c => !c.pass);
   renderFixPanel(failures);
 
-  // Check details (sub checks view)
-  renderChecks('channelChecks', checks);
-  document.getElementById('channelChecksEmpty').classList.add('hidden');
-  document.getElementById('channelChecksContent').classList.remove('hidden');
+  // Probe-grouped details
+  renderProbeDetails('channelProbes', data);
 
-  // Raw data (sub raw view)
+  // Raw JSON
   document.getElementById('rawChannel').textContent = JSON.stringify(data, null, 2);
-  document.getElementById('channelRawEmpty').classList.add('hidden');
-  document.getElementById('channelRawContent').classList.remove('hidden');
 
-  document.getElementById('channelResult').classList.remove('hidden');
-  showChannelSub('overview');
+  // Report title
+  document.getElementById('reportTitle').textContent =
+    (data.channel_name || data.target || '检测报告') + ' · ' + (data.model || '');
+}
+
+function renderModelTabs(reports) {
+  const el = document.getElementById('channelModelTabs');
+  if (!reports || reports.length <= 1) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="model-tabs">' + reports.map((r, i) => {
+    const grade = r.score ? r.score.grade : '-';
+    const color = r.score ? (gradeColorMap[r.score.grade_color] || 'var(--ink-3)') : 'var(--ink-3)';
+    return `<button class="btn btn-sm ${i === 0 ? 'active' : ''}" style="border-bottom:2px solid ${i === 0 ? color : 'transparent'}" onclick="switchModelTab(${i})" data-model-tab="${i}">
+      <span style="font-weight:700;color:${color}">${grade}</span> ${esc(r.model || '-')}
+    </button>`;
+  }).join('') + '</div>';
+}
+
+function switchModelTab(idx) {
+  if (!window._multiReports) return;
+  const r = window._multiReports[idx];
+  if (!r) return;
+  lastChannelResult = r;
+  renderChannelResult(r);
+  document.querySelectorAll('[data-model-tab]').forEach((btn, i) => {
+    btn.classList.toggle('active', i === idx);
+    const color = window._multiReports[i].score
+      ? (gradeColorMap[window._multiReports[i].score.grade_color] || 'var(--ink-3)')
+      : 'var(--ink-3)';
+    btn.style.borderBottomColor = i === idx ? color : 'transparent';
+  });
+}
+
+function renderProbeDetails(containerId, data) {
+  const probes = data.probe_results || [];
+  const checks = data.checks || [];
+  const el = document.getElementById(containerId);
+
+  if (probes.length === 0) {
+    renderChecks(containerId, checks);
+    return;
+  }
+
+  let html = '';
+  probes.forEach((probe, pi) => {
+    const passed = (probe.checks || []).filter(c => c.pass).length;
+    const total = (probe.checks || []).length;
+    const allPass = passed === total;
+    const statusClass = allPass ? 'pass' : 'fail';
+
+    html += `<div class="probe-group">
+      <div class="probe-head" onclick="this.parentElement.classList.toggle('open')">
+        <div class="probe-ind ${statusClass}">${allPass ? svgCheck : svgCross}</div>
+        <div class="probe-name">${esc(probe.label || probe.probe_id)}</div>
+        <div class="probe-id mono">${esc(probe.probe_id)}</div>
+        <div class="probe-stats">${passed}/${total}</div>
+        <div class="probe-time mono">${probe.latency_ms}ms</div>
+        <div class="probe-toggle">&#9660;</div>
+      </div>
+      <div class="probe-body">`;
+
+    // Exchanges (request/response)
+    if (probe.exchanges && probe.exchanges.length > 0) {
+      probe.exchanges.forEach((ex, ei) => {
+        const reqStr = ex.request ? JSON.stringify(JSON.parse(ex.request), null, 2) : '(streaming)';
+        const respStr = ex.response ? JSON.stringify(JSON.parse(ex.response), null, 2) : '(streaming / not captured)';
+        html += `<div class="exchange">
+          <details class="ex-block"><summary class="ex-summary">Request #${ei+1} <span class="mono muted">${ex.status || 200}</span></summary>
+            <pre class="ex-json">${esc(reqStr)}</pre>
+          </details>
+          <details class="ex-block"><summary class="ex-summary">Response #${ei+1}</summary>
+            <pre class="ex-json">${esc(respStr)}</pre>
+          </details>
+        </div>`;
+      });
+    }
+
+    // Check results
+    (probe.checks || []).forEach(c => {
+      if (currentCheckFilter === 'pass' && !c.pass) return;
+      if (currentCheckFilter === 'fail' && c.pass) return;
+      const label = c.label || '';
+      const nameDisplay = label
+        ? `<span class="check-label">${esc(label)}</span> <span class="check-id">· ${esc(c.name)}</span>`
+        : `<span class="check-id">${esc(c.name)}</span>`;
+      const expAct = (c.expected || c.actual)
+        ? `<div class="check-expect"><span class="exp-label">期望</span> ${esc(c.expected || '-')} <span class="exp-label">实际</span> ${esc(c.actual || '-')}</div>`
+        : '';
+      html += `<div class="check">
+        <div class="ind ${c.pass ? 'pass' : 'fail'}">${c.pass ? svgCheck : svgCross}</div>
+        <div class="name">${nameDisplay}${expAct}</div>
+        <div class="detail">${esc(c.detail)}</div>
+        <div class="check-status ${c.pass ? 'pass' : 'fail'}">${c.pass ? 'PASS' : 'FAIL'}</div>
+        ${!c.pass && c.fix ? '<span class="fix-pill">' + esc(c.fix) + '</span>' : ''}
+      </div>`;
+    });
+
+    html += '</div></div>';
+  });
+
+  el.innerHTML = html;
 }
 
 function renderCatBars(containerId, categories) {
@@ -253,7 +379,7 @@ function renderFixPanel(failures) {
     <div class="fix-item">
       <div class="num">${String(i + 1).padStart(2, '0')}</div>
       <div>
-        <div class="what">${esc(c.name)}</div>
+        <div class="what">${c.label ? esc(c.label) + ' · ' : ''}${esc(c.name)}</div>
         <div class="how">${esc(c.detail)}${c.fix ? ' — fix: ' + esc(c.fix) : ''}</div>
       </div>
     </div>
@@ -293,10 +419,18 @@ function renderChecks(containerId, checks) {
     items.forEach(c => {
       if (currentCheckFilter === 'pass' && !c.pass) return;
       if (currentCheckFilter === 'fail' && c.pass) return;
+      const label = c.label || '';
+      const nameDisplay = label
+        ? `<span class="check-label">${esc(label)}</span> <span class="check-id">· ${esc(c.name)}</span>`
+        : `<span class="check-id">${esc(c.name)}</span>`;
+      const expAct = (c.expected || c.actual)
+        ? `<div class="check-expect">${c.expected ? '<span class="exp-label">期望</span> ' + esc(c.expected) : ''}${c.actual ? ' <span class="exp-label">实际</span> ' + esc(c.actual) : ''}</div>`
+        : '';
       html += `<div class="check">
         <div class="ind ${c.pass ? 'pass' : 'fail'}">${c.pass ? svgCheck : svgCross}</div>
-        <div class="name">${esc(c.name)}</div>
+        <div class="name">${nameDisplay}${expAct}</div>
         <div class="detail">${esc(c.detail)}</div>
+        <div class="check-status ${c.pass ? 'pass' : 'fail'}">${c.pass ? 'PASS' : 'FAIL'}</div>
         ${!c.pass && c.fix ? '<span class="fix-pill">' + esc(c.fix) + '</span>' : ''}
       </div>`;
     });
@@ -724,14 +858,19 @@ async function loadChannelHistory() {
       const passed = (r.checks || []).filter(c => c.pass).length;
       const total = (r.checks || []).length;
       const score = r.score ? r.score.total_score.toFixed(1) : '-';
+      const grade = r.score ? r.score.grade : '-';
+      const gradeColor = r.score ? (gradeColorMap[r.score.grade_color] || 'var(--ink-3)') : 'var(--ink-3)';
+      const displayName = r.channel_name || r.target || '-';
       return `<div class="history-row" style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line-soft);cursor:pointer" onclick="viewChannelHistory('${esc(r.id)}')">
+        <div style="font-size:14px;font-weight:600;color:${gradeColor};min-width:28px;text-align:center">${esc(grade)}</div>
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:500">${esc(r.target || '-')}</div>
+          <div style="font-size:13px;font-weight:500">${esc(displayName)}</div>
           <div class="muted" style="font-size:11px">${time} · ${esc(r.model || '-')}</div>
         </div>
         <div style="font-size:12px">${passed}/${total}</div>
-        <div style="font-size:12px;font-weight:500">${score} pts</div>
+        <div style="font-size:12px;font-weight:500">${score}</div>
         <div style="font-size:11px;color:var(--ink-3)">${((r.elapsed_ms || 0) / 1000).toFixed(1)}s</div>
+        <button class="btn btn-quiet btn-sm" onclick="event.stopPropagation();renameChannelHistory('${esc(r.id)}','${esc(displayName)}')" title="重命名">&#9998;</button>
         <button class="btn btn-quiet btn-sm" onclick="event.stopPropagation();deleteChannelHistory('${esc(r.id)}')" title="删除">✕</button>
       </div>`;
     }).join('');
@@ -744,10 +883,26 @@ async function viewChannelHistory(id) {
   try {
     const data = await api('/api/channel/history/' + encodeURIComponent(id));
     lastChannelResult = data;
+    window._multiReports = null;
+    document.getElementById('channelModelTabs').innerHTML = '';
     renderChannelResult(data);
-    showChannelSub('overview');
+    showChannelView('report');
   } catch (e) {
     alert('加载历史详情失败');
+  }
+}
+
+async function renameChannelHistory(id, current) {
+  const name = prompt('输入渠道名称:', current);
+  if (name === null) return;
+  try {
+    await api('/api/channel/history/' + encodeURIComponent(id), {
+      method: 'PATCH',
+      body: JSON.stringify({channel_name: name})
+    });
+    loadChannelHistory();
+  } catch (e) {
+    alert('重命名失败');
   }
 }
 

@@ -9,7 +9,7 @@ import (
 // cctest sends a random tag and expects the LLM to echo it back.
 func checkTagReplay(body map[string]any, tag string) CheckResult {
 	if tag == "" {
-		return CheckResult{Name: "tag_replay", Pass: true, Detail: "no tag to check (skip)"}
+		return CheckResult{Name: "tag_replay", Pass: true, Expected: "tag echoed back", Actual: "no tag sent (skip)", Detail: "no tag to check (skip)"}
 	}
 	content, _ := body["content"].([]any)
 	for _, cb := range content {
@@ -21,11 +21,11 @@ func checkTagReplay(body map[string]any, tag string) CheckResult {
 		if t == "text" {
 			text, _ := m["text"].(string)
 			if strings.Contains(text, tag) {
-				return CheckResult{Name: "tag_replay", Pass: true, Detail: "tag found in response: " + tag}
+				return CheckResult{Name: "tag_replay", Pass: true, Expected: "response contains tag: " + tag, Actual: "tag found in response", Detail: "tag found in response: " + tag}
 			}
 		}
 	}
-	return CheckResult{Name: "tag_replay", Pass: false, Detail: "tag NOT found in response: " + tag}
+	return CheckResult{Name: "tag_replay", Pass: false, Expected: "response contains tag: " + tag, Actual: "tag not found", Detail: "tag NOT found in response: " + tag}
 }
 
 // checkIdentityResponse verifies the response content mentions Claude or Anthropic.
@@ -36,7 +36,7 @@ func checkIdentityResponse(body map[string]any) CheckResult {
 	text := collectResponseText(body)
 	lower := strings.ToLower(text)
 	if strings.Contains(lower, "claude") || strings.Contains(lower, "anthropic") {
-		return CheckResult{Name: "identity_response", Pass: true, Detail: "response mentions Claude/Anthropic"}
+		return CheckResult{Name: "identity_response", Pass: true, Expected: "mentions Claude or Anthropic", Actual: "found Claude/Anthropic in response", Detail: "response mentions Claude/Anthropic"}
 	}
 	// Try parsing as JSON (structured output from output_config json_schema)
 	if text != "" {
@@ -50,14 +50,14 @@ func checkIdentityResponse(body map[string]any) CheckResult {
 			}
 			combinedLower := strings.ToLower(combined)
 			if strings.Contains(combinedLower, "claude") || strings.Contains(combinedLower, "anthropic") {
-				return CheckResult{Name: "identity_response", Pass: true, Detail: "structured output mentions Claude/Anthropic"}
+				return CheckResult{Name: "identity_response", Pass: true, Expected: "mentions Claude or Anthropic", Actual: "found Claude/Anthropic in structured output", Detail: "structured output mentions Claude/Anthropic"}
 			}
 		}
 	}
 	if text == "" {
-		return CheckResult{Name: "identity_response", Pass: false, Detail: "no text content in response"}
+		return CheckResult{Name: "identity_response", Pass: false, Expected: "mentions Claude or Anthropic", Actual: "empty response (no text)", Detail: "no text content in response"}
 	}
-	return CheckResult{Name: "identity_response", Pass: false, Detail: "response does not mention Claude or Anthropic"}
+	return CheckResult{Name: "identity_response", Pass: false, Expected: "mentions Claude or Anthropic", Actual: "neither Claude nor Anthropic found", Detail: "response does not mention Claude or Anthropic"}
 }
 
 // checkPoisonAnswer verifies the answer to the classic poison bottle problem.
@@ -65,7 +65,7 @@ func checkIdentityResponse(body map[string]any) CheckResult {
 func checkPoisonAnswer(body map[string]any) CheckResult {
 	text := collectResponseText(body)
 	if text == "" {
-		return CheckResult{Name: "poison_answer", Pass: false, Detail: "no text content"}
+		return CheckResult{Name: "poison_answer", Pass: false, Expected: "answer contains standalone 10", Actual: "empty response (no text)", Detail: "no text content"}
 	}
 	// Match standalone "10" — avoid false positives from "100", "1000", etc.
 	// Use word-boundary-like check: "10" must not be adjacent to other digits.
@@ -84,9 +84,9 @@ func checkPoisonAnswer(body map[string]any) CheckResult {
 		if i > 0 && text[i-1] >= '0' && text[i-1] <= '9' {
 			continue
 		}
-		return CheckResult{Name: "poison_answer", Pass: true, Detail: "contains correct answer (10 mice)"}
+		return CheckResult{Name: "poison_answer", Pass: true, Expected: "answer contains standalone 10", Actual: "found standalone 10 in response", Detail: "contains correct answer (10 mice)"}
 	}
-	return CheckResult{Name: "poison_answer", Pass: false, Detail: "standalone 10 not found in response"}
+	return CheckResult{Name: "poison_answer", Pass: false, Expected: "answer contains standalone 10", Actual: "standalone 10 not found", Detail: "standalone 10 not found in response"}
 }
 
 // checkLogicAnswer verifies the answer to the 3-switch puzzle.
@@ -95,16 +95,16 @@ func checkLogicAnswer(body map[string]any) CheckResult {
 	text := collectResponseText(body)
 	lower := strings.ToLower(text)
 	if text == "" {
-		return CheckResult{Name: "logic_answer", Pass: false, Detail: "no text content"}
+		return CheckResult{Name: "logic_answer", Pass: false, Expected: "mentions heat/warm method", Actual: "empty response (no text)", Detail: "no text content"}
 	}
 	// The answer involves heat/temperature/warm — checking if bulb is warm
 	heatKeywords := []string{"热", "温度", "摸", "warm", "heat", "hot", "touch"}
 	for _, kw := range heatKeywords {
 		if strings.Contains(lower, kw) {
-			return CheckResult{Name: "logic_answer", Pass: true, Detail: "contains heat/warm method"}
+			return CheckResult{Name: "logic_answer", Pass: true, Expected: "mentions heat/warm method", Actual: "found keyword: " + kw, Detail: "contains heat/warm method"}
 		}
 	}
-	return CheckResult{Name: "logic_answer", Pass: false, Detail: "heat method not found in response"}
+	return CheckResult{Name: "logic_answer", Pass: false, Expected: "mentions heat/warm method", Actual: "no heat/warm keywords found", Detail: "heat method not found in response"}
 }
 
 // checkIdentityNoLeak verifies the response does not leak internal codenames.
@@ -112,7 +112,7 @@ func checkLogicAnswer(body map[string]any) CheckResult {
 func checkIdentityNoLeak(body map[string]any) CheckResult {
 	text := strings.ToLower(collectResponseText(body))
 	if text == "" {
-		return CheckResult{Name: "identity_no_leak", Pass: true, Detail: "no text content (skip)"}
+		return CheckResult{Name: "identity_no_leak", Pass: true, Expected: "no internal codename claims", Actual: "no text content (skip)", Detail: "no text content (skip)"}
 	}
 	leaks := []string{"kiro", "warp", "0z", "antigravity"}
 	negations := []string{"不是", "并非", "没有", "不存在", "我不是", "not ", "not a", "no ", "isn't", "not running"}
@@ -140,6 +140,7 @@ func checkIdentityNoLeak(body map[string]any) CheckResult {
 				for _, phrase := range claimPhrases {
 					if strings.Contains(window, phrase) {
 						return CheckResult{Name: "identity_no_leak", Pass: false,
+							Expected: "no internal codename claims", Actual: "claimed codename: " + kw,
 							Detail: "claimed/leaked internal codename: " + kw}
 					}
 				}
@@ -151,14 +152,14 @@ func checkIdentityNoLeak(body map[string]any) CheckResult {
 			idx = idx + len(kw) + next
 		}
 	}
-	return CheckResult{Name: "identity_no_leak", Pass: true, Detail: "no internal codename claim"}
+	return CheckResult{Name: "identity_no_leak", Pass: true, Expected: "no internal codename claims", Actual: "no codename claim detected", Detail: "no internal codename claim"}
 }
 
 // checkIdentityPlatform verifies the response does not claim to run on non-Anthropic platforms.
 func checkIdentityPlatform(body map[string]any) CheckResult {
 	text := strings.ToLower(collectResponseText(body))
 	if text == "" {
-		return CheckResult{Name: "identity_platform", Pass: true, Detail: "no text content (skip)"}
+		return CheckResult{Name: "identity_platform", Pass: true, Expected: "no non-Anthropic platform claims", Actual: "no text content (skip)", Detail: "no text content (skip)"}
 	}
 	platforms := []struct{ kw, label string }{
 		{"bedrock", "AWS Bedrock"},
@@ -190,12 +191,13 @@ func checkIdentityPlatform(body map[string]any) CheckResult {
 				window := text[cp:end]
 				if strings.Contains(window, phrase) {
 					return CheckResult{Name: "identity_platform", Pass: false,
+						Expected: "no non-Anthropic platform claims", Actual: "claims to run on " + p.label,
 						Detail: "claims to run on " + p.label}
 				}
 			}
 		}
 	}
-	return CheckResult{Name: "identity_platform", Pass: true, Detail: "no non-Anthropic platform claims"}
+	return CheckResult{Name: "identity_platform", Pass: true, Expected: "no non-Anthropic platform claims", Actual: "no platform claim detected", Detail: "no non-Anthropic platform claims"}
 }
 
 // checkToolForcedCompliance verifies a tool_use content block exists when tool_choice was forced.
@@ -208,9 +210,10 @@ func checkToolForcedCompliance(body map[string]any) CheckResult {
 		}
 		t, _ := m["type"].(string)
 		if t == "tool_use" || t == "server_tool_use" {
-			return CheckResult{Name: "tool_forced_compliance", Pass: true, Detail: "tool_use block present"}
+			return CheckResult{Name: "tool_forced_compliance", Pass: true, Expected: "tool_use block in response", Actual: "tool_use block present", Detail: "tool_use block present"}
 		}
 	}
 	return CheckResult{Name: "tool_forced_compliance", Pass: false,
+		Expected: "tool_use block in response", Actual: "no tool_use block found",
 		Detail: "no tool_use block found (tool_choice was forced)"}
 }

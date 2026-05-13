@@ -1,11 +1,12 @@
 package channeltest
 
-// ════════════════════════════════════════════════════════════
-//  Phase 2d: tool_use
-//  cctest 05_tool_use: web_search_20250305, tool_choice=web_search,
-//  temperature=1, 3 system blocks (billing + CC + short instruction),
-//  cache_control on user content, metadata
-// ════════════════════════════════════════════════════════════
+var probeToolUse = &Probe{
+	ID: "tool_use", Label: "工具调用探针",
+	Tags:      []string{},
+	EstTokens: 1000,
+	Checks:    []string{"tool_use_id", "tool_stop_reason", "tool_forced_compliance", "web_search_result", "server_tool_type", "citations_present", "server_tool_usage"},
+	Run:       (*Runner).runToolUseProbe,
+}
 
 func (p *Runner) runToolUseProbe(targetBase, targetKey, model string) ([]CheckResult, error) {
 	body := toJSON(map[string]any{
@@ -55,6 +56,7 @@ func (p *Runner) runToolUseProbe(targetBase, targetKey, model string) ([]CheckRe
 
 	sse, start, delta := readSSE(resp.Body)
 	full := merge(start, delta, sse)
+	p.recordStreamResult(full)
 	if full == nil {
 		return []CheckResult{
 			{Name: "tool_use_id", Pass: false, Detail: "parse failed", Fix: "id_rewrite"},

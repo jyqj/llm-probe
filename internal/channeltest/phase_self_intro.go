@@ -2,11 +2,13 @@ package channeltest
 
 import "detector-service/internal/channeltest/data"
 
-// ════════════════════════════════════════════════════════════
-//  Phase 2c: self_intro
-//  cctest 04_self_intro: thinking=nil (NOT set), stream=true,
-//  28 tools, full system, max_tokens=1024
-// ════════════════════════════════════════════════════════════
+var probeSelfIntro = &Probe{
+	ID: "self_intro", Label: "结构化自述探针",
+	Tags:      []string{},
+	EstTokens: 25000,
+	Checks:    []string{"no_thinking_leak", "identity_response", "structured_json_valid", "structured_schema_match", "structured_stop_reason"},
+	Run:       (*Runner).runSelfIntroProbe,
+}
 
 func (p *Runner) runSelfIntroProbe(targetBase, targetKey, model string) ([]CheckResult, error) {
 	body := toJSON(map[string]any{
@@ -42,6 +44,7 @@ func (p *Runner) runSelfIntroProbe(targetBase, targetKey, model string) ([]Check
 
 	sse, start, delta := readSSE(resp.Body)
 	full := merge(start, delta, sse)
+	p.recordStreamResult(full)
 	if full == nil {
 		return []CheckResult{
 			{Name: "no_thinking_leak", Pass: false, Detail: "parse failed", Fix: "body_rewrite"},
