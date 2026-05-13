@@ -4,7 +4,7 @@ let _historyState = {
   channel: { items: [], filtered: [], selected: new Set(),
     filter: { q: '', channel: '', model: '', status: '' } },
   bench:   { items: [], filtered: [], selected: new Set(),
-    filter: { q: '', dataset: '', model: '', status: '' } },
+    filter: { q: '', dataset: '', model: '', effort: '', status: '' } },
 };
 
 async function renderChannelHistory() {
@@ -78,6 +78,15 @@ function buildHistoryFilters(H, repaint, kind) {
   const models = Array.from(new Set(items.map(i => i.model).filter(Boolean))).sort();
   bar.appendChild(el('span', { class: 'lbl' }, 'model'));
   bar.appendChild(selectFilter(f, 'model', models, repaint));
+
+  // effort (bench only)
+  if (kind === 'bench') {
+    const efforts = Array.from(new Set(items.map(i => i.effort).filter(Boolean))).sort();
+    if (efforts.length > 0) {
+      bar.appendChild(el('span', { class: 'lbl' }, 'effort'));
+      bar.appendChild(selectFilter(f, 'effort', efforts, repaint));
+    }
+  }
 
   // status
   bar.appendChild(el('span', { class: 'lbl' }, 'status'));
@@ -334,11 +343,12 @@ function paintBenchHistory() {
   const f = H.filter;
   H.filtered = H.items.filter(r => {
     if (f.q) {
-      const s = ((r.dataset_name || '') + ' ' + (r.model || '')).toLowerCase();
+      const s = ((r.dataset_name || '') + ' ' + (r.model || '') + ' ' + (r.effort || '')).toLowerCase();
       if (!s.includes(f.q.toLowerCase())) return false;
     }
     if (f.dataset && (r.dataset_name || '') !== f.dataset) return false;
     if (f.model   && (r.model || '')        !== f.model) return false;
+    if (f.effort  && (r.effort || '')       !== f.effort) return false;
     if (f.status) {
       const ok = (r.task_errors || 0) === 0;
       if (f.status === 'ok' && !ok) return false;
@@ -362,10 +372,13 @@ function buildBenchHistoryTable(H) {
   t.appendChild(el('thead', null, el('tr', null,
     el('th', null, 'dataset'),
     el('th', null, 'model'),
+    el('th', { style: { width: '60px' } }, 'effort'),
+    el('th', { style: { width: '65px' } }, 'thinking'),
+    el('th', { style: { width: '80px', textAlign: 'right' } }, 'score'),
+    el('th', { style: { width: '80px', textAlign: 'right' } }, 'pass rate'),
     el('th', { style: { width: '90px', textAlign: 'right' } }, 'tasks'),
     el('th', { style: { width: '70px', textAlign: 'right' } }, 'errors'),
     el('th', { style: { width: '80px', textAlign: 'right' } }, 'elapsed'),
-    el('th', { style: { width: '60px' } }, 'thinking'),
     el('th', { style: { width: '120px' } }, 'when'),
     el('th', { style: { width: '60px' } }, ''),
   )));
@@ -377,11 +390,22 @@ function buildBenchHistoryTable(H) {
     } });
     tr.appendChild(el('td', { class: 'name-cell' }, r.dataset_name || '—'));
     tr.appendChild(el('td', { class: 'mono' }, r.model || '—'));
+    tr.appendChild(el('td', null,
+      r.effort ? el('span', { class: 'itag itag-warn' }, r.effort) : el('span', { class: 'itag' }, 'default')));
+    tr.appendChild(el('td', null,
+      r.thinking_mode ? el('span', { class: 'itag itag-info' }, r.thinking_mode)
+        : r.thinking ? el('span', { class: 'itag itag-info' }, 'on')
+        : el('span', { class: 'itag' }, 'off')));
+    const scoreVal = r.score_total != null ? Math.round(r.score_total * 100) / 100 : null;
+    const passVal = r.pass_rate != null ? Math.round(r.pass_rate * 1000) / 10 : null;
+    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', fontWeight: 600 } },
+      scoreVal != null ? String(scoreVal) : '—'));
+    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right' } },
+      passVal != null ? passVal + '%' : '—'));
     tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right' } },
       (r.task_completed || 0) + ' / ' + (r.task_total || 0)));
     tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', color: r.task_errors > 0 ? 'var(--bad-ink)' : 'var(--ink-3)' } }, r.task_errors || 0));
     tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } }, fmtMs(r.elapsed_ms)));
-    tr.appendChild(el('td', null, r.thinking ? el('span', { class: 'itag itag-info' }, 'on') : el('span', { class: 'itag' }, 'off')));
     tr.appendChild(el('td', { class: 'mono', style: { fontSize: '11px' } }, fmtTimeAgo(r.started_at),
       el('div', { style: { fontSize: '10px', color: 'var(--ink-4)' } }, fmtTime(r.started_at))));
     tr.appendChild(el('td', null, el('div', { class: 'row-actions' },

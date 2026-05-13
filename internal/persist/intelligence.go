@@ -24,9 +24,10 @@ func SaveIntelligenceHistory(db *sql.DB, r *intelligence.RunReport) error {
 		passRate = sql.NullFloat64{Float64: *r.PassRate, Valid: true}
 	}
 	_, err = db.Exec(`INSERT OR REPLACE INTO intelligence_history
-		(id, dataset_name, model, started_at, score_total, pass_rate, payload_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.DatasetName, r.Model, r.StartedAt.Format(time.RFC3339),
+		(id, dataset_name, model, effort, thinking_mode, started_at, score_total, pass_rate, payload_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.DatasetName, r.Model, r.Effort, r.ThinkingMode,
+		r.StartedAt.Format(time.RFC3339),
 		scoreTotal, passRate, string(payload))
 	return err
 }

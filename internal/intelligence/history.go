@@ -7,16 +7,22 @@ import (
 
 // RunReportSummary is a lightweight view of RunReport for list display.
 type RunReportSummary struct {
-	ID             string `json:"id"`
-	DatasetName    string `json:"dataset_name"`
-	Model          string `json:"model"`
-	Target         string `json:"target"`
-	Thinking       bool   `json:"thinking,omitempty"`
-	TaskTotal      int    `json:"task_total"`
-	TaskCompleted  int    `json:"task_completed"`
-	TaskErrors     int    `json:"task_errors"`
-	ElapsedMs      int64  `json:"elapsed_ms"`
-	StartedAt      string `json:"started_at"`
+	ID             string   `json:"id"`
+	DatasetName    string   `json:"dataset_name"`
+	Model          string   `json:"model"`
+	Target         string   `json:"target"`
+	Thinking       bool     `json:"thinking,omitempty"`
+	Effort         string   `json:"effort,omitempty"`
+	ThinkingMode   string   `json:"thinking_mode,omitempty"`
+	TaskTotal      int      `json:"task_total"`
+	TaskCompleted  int      `json:"task_completed"`
+	TaskErrors     int      `json:"task_errors"`
+	ElapsedMs      int64    `json:"elapsed_ms"`
+	StartedAt      string   `json:"started_at"`
+	ScoreTotal     *float64 `json:"score_total,omitempty"`
+	PassRate       *float64 `json:"pass_rate,omitempty"`
+	TotalEvaluated int      `json:"total_evaluated,omitempty"`
+	TotalPassed    int      `json:"total_passed,omitempty"`
 }
 
 // HistoryPersist holds callbacks for SQLite persistence, injected by the caller
@@ -77,16 +83,22 @@ func (h *HistoryStore) List() []RunReportSummary {
 	out := make([]RunReportSummary, len(h.records))
 	for i, r := range h.records {
 		out[len(h.records)-1-i] = RunReportSummary{
-			ID:            r.ID,
-			DatasetName:   r.DatasetName,
-			Model:         r.Model,
-			Target:        r.Target,
-			Thinking:      r.Thinking,
-			TaskTotal:     r.TaskTotal,
-			TaskCompleted: r.TaskCompleted,
-			TaskErrors:    r.TaskErrors,
-			ElapsedMs:     r.ElapsedMs,
-			StartedAt:     r.StartedAt.Format("2006-01-02 15:04:05"),
+			ID:             r.ID,
+			DatasetName:    r.DatasetName,
+			Model:          r.Model,
+			Target:         r.Target,
+			Thinking:       r.Thinking,
+			Effort:         r.Effort,
+			ThinkingMode:   r.ThinkingMode,
+			TaskTotal:      r.TaskTotal,
+			TaskCompleted:  r.TaskCompleted,
+			TaskErrors:     r.TaskErrors,
+			ElapsedMs:      r.ElapsedMs,
+			StartedAt:      r.StartedAt.Format("2006-01-02 15:04:05"),
+			ScoreTotal:     r.ScoreTotal,
+			PassRate:       r.PassRate,
+			TotalEvaluated: r.TotalEvaluated,
+			TotalPassed:    r.TotalPassed,
 		}
 	}
 	return out

@@ -76,7 +76,7 @@ function paintRail(route) {
       railLink('历史记录', '#/bench/history', route.kind === 'history', 'history'),
     ]));
     const liveBenchIds = Object.entries(State.liveRuns)
-      .filter(([id, r]) => r.kind === 'bench' && r.state === 'running')
+      .filter(([id, r]) => (r.kind === 'bench' || r.kind === 'bench-batch') && r.state === 'running')
       .map(([id]) => id);
     if (liveBenchIds.length) {
       const sec = el('div', { class: 'rail-section' });

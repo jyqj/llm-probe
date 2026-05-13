@@ -193,19 +193,50 @@ function openRunConfigDrawer() {
   // Effort level — options depend on selected model
   const elevels = effortLevelsFor(effectiveModel);
   if (elevels.length > 0) {
-    if (B.effort && !elevels.includes(B.effort)) B.effort = '';
-    const allOpts = [''].concat(elevels);
-    body.appendChild(buildField('EFFORT', (() => {
-      const seg = el('div', { class: 'seg', style: { width: 'fit-content' } });
-      allOpts.forEach(v => {
-        const b = el('button', { class: B.effort === v ? 'active' : '',
-          onclick: () => { B.effort = v; openRunConfigDrawer(); } }, v || 'default');
-        seg.appendChild(b);
+    // multi-effort toggle
+    const modeToggle = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' } });
+    const seg = el('div', { class: 'seg', style: { width: 'fit-content' } });
+    const bSingle = el('button', { class: !B.multiEffort ? 'active' : '',
+      onclick: () => { B.multiEffort = false; openRunConfigDrawer(); } }, '单个');
+    const bMulti = el('button', { class: B.multiEffort ? 'active' : '',
+      onclick: () => { B.multiEffort = true; if (!B.selectedEfforts.length) B.selectedEfforts = [...elevels]; openRunConfigDrawer(); } }, '批量对比');
+    seg.appendChild(bSingle); seg.appendChild(bMulti);
+    modeToggle.appendChild(seg);
+    body.appendChild(buildField('EFFORT MODE', modeToggle));
+
+    if (B.multiEffort) {
+      B.selectedEfforts = B.selectedEfforts.filter(e => elevels.includes(e));
+      if (!B.selectedEfforts.length) B.selectedEfforts = [...elevels];
+      const checkWrap = el('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } });
+      elevels.forEach(lv => {
+        const checked = B.selectedEfforts.includes(lv);
+        const cb = el('label', { style: { display: 'flex', gap: '4px', alignItems: 'center', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--font-mono)' } },
+          el('input', { type: 'checkbox', checked: checked ? '' : null,
+            onchange: () => {
+              if (checked) B.selectedEfforts = B.selectedEfforts.filter(e => e !== lv);
+              else B.selectedEfforts.push(lv);
+              openRunConfigDrawer();
+            } }),
+          lv);
+        checkWrap.appendChild(cb);
       });
-      return seg;
-    })()));
+      body.appendChild(buildField('EFFORT LEVELS (' + B.selectedEfforts.length + '/' + elevels.length + ')', checkWrap));
+    } else {
+      if (B.effort && !elevels.includes(B.effort)) B.effort = '';
+      const allOpts = [''].concat(elevels);
+      body.appendChild(buildField('EFFORT', (() => {
+        const effortSeg = el('div', { class: 'seg', style: { width: 'fit-content' } });
+        allOpts.forEach(v => {
+          const b = el('button', { class: B.effort === v ? 'active' : '',
+            onclick: () => { B.effort = v; openRunConfigDrawer(); } }, v || 'default');
+          effortSeg.appendChild(b);
+        });
+        return effortSeg;
+      })()));
+    }
   } else {
     B.effort = '';
+    B.multiEffort = false;
     body.appendChild(buildField('EFFORT', el('span', { class: 'muted', style: { fontSize: '11px' } }, '此模型不支持 effort')));
   }
 
@@ -304,6 +335,11 @@ async function kickoffBenchRun() {
   if (!B.targetKey)  { toast('请填写 API Key', 'bad'); return; }
   if (!State.currentDataset) { toast('请选择数据集', 'bad'); return; }
 
+  if (B.multiEffort && B.selectedEfforts.length > 1) {
+    kickoffMultiEffortRun();
+    return;
+  }
+
   const tempId = 'live_' + Date.now().toString(36);
   const payload = {
     target_base: B.targetBase, target_key: B.targetKey,
@@ -343,6 +379,138 @@ async function kickoffBenchRun() {
     r.state = 'error'; r.error = err.message || String(err);
     maybeRerenderBench(tempId);
   });
+}
+
+/* ─── multi-effort sweep ─── */
+async function kickoffMultiEffortRun() {
+  const B = State.bench;
+  const efforts = [...B.selectedEfforts];
+  const batchId = 'batch_' + Date.now().toString(36);
+
+  State.liveRuns[batchId] = {
+    kind: 'bench-batch',
+    state: 'running',
+    efforts,
+    dataset: State.currentDataset,
+    target: B.targetBase,
+    model: B.runModel || B.model,
+    startedAt: Date.now(),
+    subRuns: {},
+    completedEfforts: 0,
+    totalEfforts: efforts.length,
+    thinking: B.thinking,
+    thinkingMode: B.thinkingMode || '',
+    error: null,
+  };
+  location.hash = '#/bench/run/' + batchId;
+
+  for (const effort of efforts) {
+    if (State.liveRuns[batchId].state === 'cancelled') break;
+    const subId = batchId + '_' + effort;
+    const payload = {
+      target_base: B.targetBase, target_key: B.targetKey,
+      model: B.runModel || B.model,
+      concurrency: B.concurrency, thinking: B.thinking,
+      effort: effort,
+      thinking_mode: B.thinkingMode !== 'off' ? B.thinkingMode : undefined,
+    };
+    if (B.scope === 'custom') {
+      if (B.lang) payload.language = B.lang;
+      if (B.category) payload.category = B.category;
+      if (B.limit > 0) payload.limit = B.limit;
+    }
+
+    State.liveRuns[batchId].subRuns[effort] = {
+      subId, state: 'running', payload, effort,
+      totalTasks: 0, completedTasks: 0, errorTasks: 0,
+      results: [], finalReport: null, error: null,
+    };
+    maybeRerenderBench(batchId);
+
+    try {
+      await runBatchSubStream(batchId, effort, subId, payload);
+    } catch (err) {
+      const sub = State.liveRuns[batchId].subRuns[effort];
+      if (sub) { sub.state = 'error'; sub.error = err.message || String(err); }
+    }
+    State.liveRuns[batchId].completedEfforts++;
+    maybeRerenderBench(batchId);
+  }
+
+  const batch = State.liveRuns[batchId];
+  if (batch && batch.state === 'running') batch.state = 'done';
+  maybeRerenderBench(batchId);
+}
+
+async function runBatchSubStream(batchId, effort, subId, payload) {
+  const batch = State.liveRuns[batchId];
+  const sub = batch.subRuns[effort];
+  const ac = new AbortController();
+  sub.aborter = ac;
+  let resp;
+  try {
+    resp = await fetch('/api/intelligence/datasets/' + encodeURIComponent(batch.dataset) + '/stream', {
+      method: 'POST', headers: headers(),
+      body: JSON.stringify(payload), signal: ac.signal,
+    });
+  } catch (e) {
+    if (e.name === 'AbortError') { sub.state = 'cancelled'; return; }
+    throw e;
+  }
+  if (!resp.ok) throw new Error(await resp.text());
+  const reader = resp.body.getReader(); const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n'); buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      try {
+        const ev = JSON.parse(line.slice(6));
+        handleBatchSubSSE(batchId, effort, ev);
+      } catch {}
+    }
+  }
+  if (buf.startsWith('data: ')) {
+    try { handleBatchSubSSE(batchId, effort, JSON.parse(buf.slice(6))); } catch {}
+  }
+}
+
+function handleBatchSubSSE(batchId, effort, ev) {
+  const batch = State.liveRuns[batchId]; if (!batch) return;
+  const sub = batch.subRuns[effort]; if (!sub) return;
+  if (ev.type === 'progress') {
+    sub.totalTasks = ev.total || sub.totalTasks;
+    sub.completedTasks = ev.completed || sub.completedTasks;
+    sub.errorTasks = ev.errors || sub.errorTasks;
+    if (ev.result) sub.results.push(ev.result);
+    maybeRerenderBench(batchId);
+  } else if (ev.type === 'complete') {
+    sub.state = 'done';
+    sub.finalReport = ev.report;
+    if (ev.report) {
+      sub.totalTasks = ev.report.task_total;
+      sub.completedTasks = ev.report.task_completed;
+      sub.errorTasks = ev.report.task_errors;
+    }
+    maybeRerenderBench(batchId);
+  } else if (ev.type === 'error') {
+    sub.state = 'error'; sub.error = ev.error_msg || ev.error;
+    maybeRerenderBench(batchId);
+  }
+}
+
+function cancelBatchRun(batchId) {
+  const batch = State.liveRuns[batchId]; if (!batch) return;
+  batch.state = 'cancelled';
+  Object.values(batch.subRuns).forEach(sub => {
+    if (sub.aborter) sub.aborter.abort();
+    if (sub.state === 'running') sub.state = 'cancelled';
+  });
+  maybeRerenderBench(batchId);
+  toast('已取消批量运行', 'good');
 }
 
 async function runBenchStream(runId, payload) {
@@ -417,12 +585,20 @@ function maybeRerenderBench(runId) {
   const route = parseRoute(location.hash);
   if (route.app !== 'bench' || route.kind !== 'run' || route.id !== runId) return;
   if (_benchRenderTimer) return;
-  _benchRenderTimer = requestAnimationFrame(() => { _benchRenderTimer = null; renderBenchRunPage(runId); });
+  _benchRenderTimer = requestAnimationFrame(() => {
+    _benchRenderTimer = null;
+    const run = State.liveRuns[runId];
+    if (run && run.kind === 'bench-batch') renderBenchBatchPage(runId);
+    else renderBenchRunPage(runId);
+  });
 }
 
 /* ─── Bench run page ─── */
 async function renderBenchRunRoute(runId) {
-  if (State.liveRuns[runId]) { renderBenchRunPage(runId); return; }
+  if (State.liveRuns[runId]) {
+    if (State.liveRuns[runId].kind === 'bench-batch') { renderBenchBatchPage(runId); return; }
+    renderBenchRunPage(runId); return;
+  }
   const v = $('#view');
   v.innerHTML = '<div class="empty">加载历史中…</div>';
   try {
@@ -636,4 +812,222 @@ function rerunBench(runId) {
     location.hash = '#/bench';
     toast('已填回部分配置,请确认 API Key 后重新开始', 'good');
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Batch (multi-effort) run page
+ * ═══════════════════════════════════════════════════════════════════════ */
+function renderBenchBatchPage(batchId) {
+  const batch = State.liveRuns[batchId];
+  if (!batch) return;
+  const crumbs = [{ label: 'Benchmark', href: '#/bench' }, { cur: batch.dataset + ' · 多 Effort 对比' }];
+  const actions = el('div', { class: 'crumb-actions' });
+  if (batch.state === 'running') {
+    actions.appendChild(btn('取消全部', { icon: 'stop', size: 'sm', danger: true, onClick: () => cancelBatchRun(batchId) }));
+  } else {
+    actions.appendChild(btn('导出 JSON', { icon: 'download', size: 'sm', ghost: true,
+      onClick: () => {
+        const exportData = {};
+        Object.entries(batch.subRuns).forEach(([eff, sub]) => { exportData[eff] = sub.finalReport || { results: sub.results }; });
+        downloadJSON(exportData, 'bench-batch-' + batchId + '.json');
+      } }));
+  }
+  setCrumb(crumbs, actions);
+
+  const v = $('#view'); v.innerHTML = '';
+
+  // batch header
+  v.appendChild(renderBatchHeader(batch, batchId));
+
+  // per-effort progress
+  v.appendChild(renderBatchEffortCards(batch));
+
+  // score comparison chart
+  if (batch.state === 'done' || batch.completedEfforts > 0) {
+    v.appendChild(renderBatchScoreComparison(batch));
+  }
+}
+
+function renderBatchHeader(batch, batchId) {
+  const wrap = el('div', { class: 'statbar' });
+  const statusBadge = (() => {
+    if (batch.state === 'running') return el('span', { class: 'pill pill-running' }, el('span', { class: 'led' }), '运行中');
+    if (batch.state === 'cancelled') return el('span', { class: 'pill pill-warn' }, el('span', { class: 'led' }), '已取消');
+    return el('span', { class: 'pill pill-good' }, el('span', { class: 'led' }), '完成');
+  })();
+  wrap.appendChild(el('div', { class: 'cell' }, el('div', { class: 'k' }, 'STATUS'), el('div', { class: 'v' }, statusBadge)));
+  wrap.appendChild(el('div', { class: 'cell' }, el('div', { class: 'k' }, 'DATASET'), el('div', { class: 'v' }, batch.dataset || '—')));
+  wrap.appendChild(el('div', { class: 'cell' }, el('div', { class: 'k' }, 'MODEL'), el('div', { class: 'v mono' }, batch.model || '—')));
+  wrap.appendChild(el('div', { class: 'cell' }, el('div', { class: 'k' }, 'THINKING'), el('div', { class: 'v' }, batch.thinkingMode || (batch.thinking ? 'on' : 'off'))));
+  wrap.appendChild(el('div', { class: 'cell' }, el('div', { class: 'k' }, 'EFFORTS'), el('div', { class: 'v' }, batch.efforts.join(', '))));
+  wrap.appendChild(el('div', { class: 'cell' }, el('div', { class: 'k' }, 'PROGRESS'),
+    el('div', { class: 'v mono' }, batch.completedEfforts + ' / ' + batch.totalEfforts)));
+
+  if (batch.state === 'running') {
+    const elapsed = el('span', { class: 'mono', id: 'batchLiveElapsed' }, fmtMs(Date.now() - batch.startedAt));
+    wrap.appendChild(el('div', { class: 'cell' }, el('div', { class: 'k' }, 'ELAPSED'), el('div', { class: 'v' }, elapsed)));
+    if (!batch._tick) {
+      batch._tick = setInterval(() => {
+        if (batch.state !== 'running') { clearInterval(batch._tick); batch._tick = null; return; }
+        const cur = document.getElementById('batchLiveElapsed');
+        if (cur) cur.textContent = fmtMs(Date.now() - batch.startedAt);
+      }, 1000);
+    }
+  }
+  return wrap;
+}
+
+function renderBatchEffortCards(batch) {
+  const panel = el('div', { class: 'panel', style: { marginBottom: '12px' } });
+  panel.appendChild(el('div', { class: 'panel-head' },
+    el('h3', null, '各 Effort 级别'),
+    el('span', { class: 'meta' }, batch.efforts.length + ' 个'),
+  ));
+  const body = el('div', { class: 'panel-body', style: { padding: '12px' } });
+  const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' } });
+
+  batch.efforts.forEach(effort => {
+    const sub = batch.subRuns[effort];
+    const card = el('div', { class: 'model-card' });
+    const top = el('div', { class: 'top' });
+
+    if (!sub) {
+      top.appendChild(el('span', { class: 'led-dot pending' }));
+      top.appendChild(el('div', { class: 'name' }, effort));
+      top.appendChild(el('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--ink-4)' } }, '等待中'));
+    } else if (sub.state === 'running') {
+      top.appendChild(el('span', { class: 'led-dot running' }));
+      top.appendChild(el('div', { class: 'name' }, effort));
+      top.appendChild(el('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--ink-3)' } },
+        sub.completedTasks + '/' + sub.totalTasks));
+      const pct = sub.totalTasks > 0 ? Math.round(sub.completedTasks / sub.totalTasks * 100) : 0;
+      card.appendChild(top);
+      card.appendChild(el('div', { style: { padding: '6px 10px 10px' } },
+        el('div', { class: 'progress', style: { height: '3px' } },
+          el('div', { class: 'progress-fill', style: { width: pct + '%' } }))));
+      grid.appendChild(card);
+      return;
+    } else if (sub.state === 'error') {
+      top.appendChild(el('span', { class: 'led-dot fail' }));
+      top.appendChild(el('div', { class: 'name' }, effort));
+      top.appendChild(el('span', { style: { fontSize: '11px', color: 'var(--bad-ink)' } }, '失败'));
+    } else if (sub.state === 'cancelled') {
+      top.appendChild(el('span', { class: 'led-dot pending' }));
+      top.appendChild(el('div', { class: 'name' }, effort));
+      top.appendChild(el('span', { style: { fontSize: '11px', color: 'var(--warn-ink)' } }, '已取消'));
+    } else {
+      top.appendChild(el('span', { class: 'led-dot pass' }));
+      top.appendChild(el('div', { class: 'name' }, effort));
+      const rep = sub.finalReport;
+      if (rep) {
+        const score = rep.score_total != null ? Math.round(rep.score_total * 100) / 100 : null;
+        const rate = rep.pass_rate != null ? Math.round(rep.pass_rate * 1000) / 10 : null;
+        top.appendChild(el('span', { class: 'mono', style: { fontSize: '11px', fontWeight: 600 } },
+          score != null ? score + ' pts' : sub.completedTasks + '/' + sub.totalTasks));
+        if (rate != null) {
+          card.appendChild(top);
+          card.appendChild(el('div', { style: { padding: '4px 10px 8px', fontSize: '11px', color: 'var(--ink-3)' } },
+            'pass rate: ' + rate + '% · ' + fmtMs(rep.elapsed_ms)));
+          grid.appendChild(card);
+          return;
+        }
+      }
+    }
+    card.appendChild(top);
+    grid.appendChild(card);
+  });
+
+  body.appendChild(grid);
+  panel.appendChild(body);
+  return panel;
+}
+
+function renderBatchScoreComparison(batch) {
+  const panel = el('div', { class: 'panel' });
+  panel.appendChild(el('div', { class: 'panel-head' },
+    el('h3', null, 'Effort 对比'),
+    el('span', { class: 'meta' }, '分数 / 通过率 / 耗时'),
+  ));
+
+  const body = el('div', { class: 'panel-body', style: { padding: '0' } });
+  const t = el('table', { class: 'table' });
+  t.appendChild(el('thead', null, el('tr', null,
+    el('th', null, 'effort'),
+    el('th', { style: { textAlign: 'right' } }, 'score'),
+    el('th', { style: { textAlign: 'right' } }, 'pass rate'),
+    el('th', { style: { textAlign: 'right' } }, 'tasks'),
+    el('th', { style: { textAlign: 'right' } }, 'errors'),
+    el('th', { style: { textAlign: 'right' } }, 'avg/task'),
+    el('th', { style: { textAlign: 'right' } }, 'total time'),
+    el('th', null, 'status'),
+  )));
+
+  const tb = el('tbody');
+  batch.efforts.forEach(effort => {
+    const sub = batch.subRuns[effort];
+    if (!sub) return;
+    const rep = sub.finalReport;
+    const tr = el('tr');
+    tr.appendChild(el('td', null, el('span', { class: 'itag itag-warn' }, effort)));
+
+    if (rep) {
+      const score = rep.score_total != null ? Math.round(rep.score_total * 100) / 100 : null;
+      const rate = rep.pass_rate != null ? Math.round(rep.pass_rate * 1000) / 10 : null;
+      tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', fontWeight: 600 } },
+        score != null ? String(score) : '—'));
+      tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right' } },
+        rate != null ? rate + '%' : '—'));
+      tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right' } },
+        (rep.task_completed || sub.completedTasks) + '/' + (rep.task_total || sub.totalTasks)));
+      tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', color: (rep.task_errors || 0) > 0 ? 'var(--bad-ink)' : 'var(--ink-3)' } },
+        rep.task_errors || 0));
+      const avgMs = sub.results.length > 0
+        ? Math.round(sub.results.reduce((s, r) => s + (r.elapsed_ms || 0), 0) / sub.results.length)
+        : 0;
+      tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } }, avgMs ? fmtMs(avgMs) : '—'));
+      tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } }, fmtMs(rep.elapsed_ms)));
+    } else {
+      tr.appendChild(el('td', { style: { textAlign: 'right' } }, '—'));
+      tr.appendChild(el('td', { style: { textAlign: 'right' } }, '—'));
+      tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } },
+        sub.completedTasks + '/' + sub.totalTasks));
+      tr.appendChild(el('td', { style: { textAlign: 'right' } }, sub.errorTasks || 0));
+      tr.appendChild(el('td', { style: { textAlign: 'right' } }, '—'));
+      tr.appendChild(el('td', { style: { textAlign: 'right' } }, '—'));
+    }
+
+    const statePill = sub.state === 'done' ? el('span', { class: 'pill pill-good' }, el('span', { class: 'led' }), '完成')
+      : sub.state === 'running' ? el('span', { class: 'pill pill-running' }, el('span', { class: 'led' }), '运行中')
+      : sub.state === 'error' ? el('span', { class: 'pill pill-bad' }, el('span', { class: 'led' }), '失败')
+      : el('span', { class: 'pill pill-warn' }, el('span', { class: 'led' }), sub.state);
+    tr.appendChild(el('td', null, statePill));
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  body.appendChild(t);
+
+  // bar chart visualization
+  const chartWrap = el('div', { style: { padding: '14px', borderTop: '1px solid var(--line)' } });
+  const maxScore = Math.max(...batch.efforts.map(e => {
+    const sub = batch.subRuns[e];
+    return sub && sub.finalReport && sub.finalReport.score_total != null ? sub.finalReport.score_total : 0;
+  }), 1);
+
+  batch.efforts.forEach(effort => {
+    const sub = batch.subRuns[effort];
+    const rep = sub ? sub.finalReport : null;
+    const score = rep && rep.score_total != null ? rep.score_total : 0;
+    const pct = Math.round(score / maxScore * 100);
+    const row = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } });
+    row.appendChild(el('span', { class: 'mono', style: { width: '60px', fontSize: '11px', textAlign: 'right', flexShrink: '0' } }, effort));
+    row.appendChild(el('div', { style: { flex: '1', background: 'var(--panel-2)', borderRadius: '3px', height: '18px', overflow: 'hidden' } },
+      el('div', { style: { width: pct + '%', height: '100%', background: 'var(--accent)', borderRadius: '3px', transition: 'width .3s' } })));
+    row.appendChild(el('span', { class: 'mono', style: { width: '50px', fontSize: '11px', color: 'var(--ink-3)' } },
+      score > 0 ? (Math.round(score * 100) / 100) : '—'));
+    chartWrap.appendChild(row);
+  });
+  body.appendChild(chartWrap);
+
+  panel.appendChild(body);
+  return panel;
 }

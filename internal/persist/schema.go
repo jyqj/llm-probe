@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS intelligence_history (
   id TEXT PRIMARY KEY,
   dataset_name TEXT,
   model TEXT,
+  effort TEXT DEFAULT '',
+  thinking_mode TEXT DEFAULT '',
   started_at TEXT,
   score_total REAL,
   pass_rate REAL,

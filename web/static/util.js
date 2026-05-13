@@ -12,6 +12,7 @@ const State = {
     targetBase: '', targetKey: '', model: 'claude-opus-4-6',
     concurrency: 5, thinking: false, effort: '', thinkingMode: '',
     scope: 'custom', lang: '', category: '', limit: 0, runModel: '',
+    multiEffort: false, selectedEfforts: [],
   },
   // live runs (not yet persisted to history)
   liveRuns: Object.create(null),   // run_id → {state, reports, events, sse}

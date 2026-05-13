@@ -52,6 +52,14 @@ func (db *DB) Conn() *sql.DB {
 // During development, delete data/detector.db to apply schema changes.
 // Add a versioned migration system before production deployment.
 func (db *DB) Migrate() error {
-	_, err := db.conn.Exec(schemaSQL)
-	return err
+	if _, err := db.conn.Exec(schemaSQL); err != nil {
+		return err
+	}
+	for _, col := range []struct{ table, col, def string }{
+		{"intelligence_history", "effort", "TEXT DEFAULT ''"},
+		{"intelligence_history", "thinking_mode", "TEXT DEFAULT ''"},
+	} {
+		db.conn.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", col.table, col.col, col.def))
+	}
+	return nil
 }
