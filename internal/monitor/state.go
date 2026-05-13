@@ -22,23 +22,26 @@ type HealthState struct {
 
 // MonitorRun records a single monitor execution.
 type MonitorRun struct {
-	ID                 string                  `json:"id"`
-	TargetID           string                  `json:"target_id"`
-	Model              string                  `json:"model"`
-	CheckType          string                  `json:"check_type,omitempty"`
-	Status             Status                  `json:"status"`
-	Score              float64                 `json:"score"`
-	Grade              string                  `json:"grade"`
-	Report             *channeltest.Report     `json:"report,omitempty"`
-	Error              string                  `json:"error,omitempty"`
-	IntelligenceReport *intelligence.RunReport `json:"intelligence_report,omitempty"`
-	IntelligenceError  string                  `json:"intelligence_error,omitempty"`
-	BaselineDiff       *DiffReport             `json:"baseline_diff,omitempty"`
-	Escalated          bool                    `json:"escalated,omitempty"`
-	StartedAt          time.Time               `json:"started_at"`
-	ElapsedMs          int64                   `json:"elapsed_ms"`
-	PrevState          Status                  `json:"prev_state"`
-	Changed            bool                    `json:"changed"`
+	ID                  string                  `json:"id"`
+	TargetID            string                  `json:"target_id"`
+	Model               string                  `json:"model"`
+	CheckType           string                  `json:"check_type,omitempty"`
+	Status              Status                  `json:"status"`
+	Score               float64                 `json:"score"`
+	Grade               string                  `json:"grade"`
+	Report              *channeltest.Report     `json:"report,omitempty"`
+	Error               string                  `json:"error,omitempty"`
+	IntelligenceReport  *intelligence.RunReport `json:"intelligence_report,omitempty"`
+	IntelligenceError   string                  `json:"intelligence_error,omitempty"`
+	BaselineDiff        *DiffReport             `json:"baseline_diff,omitempty"`
+	Escalated           bool                    `json:"escalated,omitempty"`
+	EscalationReason    string                  `json:"escalation_reason,omitempty"`
+	ChannelSurface      string                  `json:"channel_surface,omitempty"`
+	IntelligenceSurface string                  `json:"intelligence_surface,omitempty"`
+	StartedAt           time.Time               `json:"started_at"`
+	ElapsedMs           int64                   `json:"elapsed_ms"`
+	PrevState           Status                  `json:"prev_state"`
+	Changed             bool                    `json:"changed"`
 }
 
 // StatusFromScore derives health status from a channel test score.

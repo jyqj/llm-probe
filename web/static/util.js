@@ -10,8 +10,8 @@ const State = {
   },
   bench: {
     targetBase: '', targetKey: '', model: 'claude-opus-4-6',
-    concurrency: 5, thinking: false, scope: 'custom',
-    lang: '', category: '', limit: 0, runModel: '',
+    concurrency: 5, thinking: false, effort: '', thinkingMode: '',
+    scope: 'custom', lang: '', category: '', limit: 0, runModel: '',
   },
   // live runs (not yet persisted to history)
   liveRuns: Object.create(null),   // run_id → {state, reports, events, sse}
@@ -279,4 +279,31 @@ function reportSummary(rep) {
     elapsedMs: rep.elapsed_ms || 0,
     failures: checks.filter(c => !c.pass),
   };
+}
+
+/* ─── Model capabilities (mirrors Go model_caps.go) ─── */
+const MODEL_CAPS = {
+  'claude-haiku-4-5':  { thinking: true, thinkingMode: 'enabled', effort: [] },
+  'claude-sonnet-4-6': { thinking: true, thinkingMode: 'adaptive', effort: ['low','medium','high','max'] },
+  'claude-opus-4-5':   { thinking: true, thinkingMode: 'enabled', effort: ['low','medium','high'] },
+  'claude-opus-4-6':   { thinking: true, thinkingMode: 'adaptive', effort: ['low','medium','high','max'] },
+  'claude-opus-4-7':   { thinking: true, thinkingMode: 'adaptive_only', effort: ['low','medium','high','xhigh','max'] },
+};
+function getModelCaps(model) {
+  if (MODEL_CAPS[model]) return MODEL_CAPS[model];
+  for (const prefix in MODEL_CAPS) {
+    if (model && model.startsWith(prefix)) return MODEL_CAPS[prefix];
+  }
+  return { thinking: false, thinkingMode: '', effort: [] };
+}
+function thinkingModesFor(model) {
+  const c = getModelCaps(model);
+  if (!c.thinking) return ['off'];
+  if (c.thinkingMode === 'adaptive_only') return ['adaptive'];
+  if (c.thinkingMode === 'adaptive') return ['off', 'adaptive'];
+  if (c.thinkingMode === 'enabled') return ['off', 'enabled'];
+  return ['off'];
+}
+function effortLevelsFor(model) {
+  return getModelCaps(model).effort;
 }

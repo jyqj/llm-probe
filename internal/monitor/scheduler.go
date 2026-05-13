@@ -14,18 +14,20 @@ type Scheduler struct {
 	runner *MonitorRunner
 	logger *slog.Logger
 
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	due    map[string]time.Time // targetID:model → next due time
+	mu      sync.Mutex
+	cancel  context.CancelFunc
+	due     map[string]time.Time // targetID:model → next due time
+	running map[string]bool      // targetID:model currently executing
 }
 
 // NewScheduler creates a scheduler.
 func NewScheduler(store *Store, runner *MonitorRunner, logger *slog.Logger) *Scheduler {
 	return &Scheduler{
-		store:  store,
-		runner: runner,
-		logger: logger,
-		due:    make(map[string]time.Time),
+		store:   store,
+		runner:  runner,
+		logger:  logger,
+		due:     make(map[string]time.Time),
+		running: make(map[string]bool),
 	}
 }
 
@@ -83,7 +85,10 @@ func (s *Scheduler) tick(now time.Time) {
 			if now.Before(due) {
 				continue
 			}
-			go s.runOne(t, model)
+			if !s.markRunning(key) {
+				continue
+			}
+			go s.runOne(key, t, model)
 			next := now.Add(t.Interval)
 			if t.Jitter > 0 {
 				next = next.Add(time.Duration(rand.Int63n(int64(t.Jitter))))
@@ -93,7 +98,24 @@ func (s *Scheduler) tick(now time.Time) {
 	}
 }
 
-func (s *Scheduler) runOne(target *Target, model string) {
+func (s *Scheduler) markRunning(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running[key] {
+		return false
+	}
+	s.running[key] = true
+	return true
+}
+
+func (s *Scheduler) clearRunning(key string) {
+	s.mu.Lock()
+	delete(s.running, key)
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) runOne(key string, target *Target, model string) {
+	defer s.clearRunning(key)
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("monitor run panic", "target", target.Name, "model", model, "panic", r)

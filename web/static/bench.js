@@ -172,18 +172,45 @@ function openRunConfigDrawer() {
     oninput: onChange('concurrency', v => parseInt(v) || 1),
     style: { width: '80px', background: 'transparent', border: 'none', padding: '0' } })));
 
-  body.appendChild(buildField('THINKING', (() => {
+  // Thinking mode — options depend on selected model
+  const effectiveModel = B.runModel || B.model;
+  const tmodes = thinkingModesFor(effectiveModel);
+  if (!B.thinkingMode || !tmodes.includes(B.thinkingMode)) {
+    B.thinkingMode = tmodes.includes('adaptive') ? 'adaptive' : tmodes[0];
+    B.thinking = B.thinkingMode !== 'off';
+  }
+  body.appendChild(buildField('THINKING MODE', (() => {
     const seg = el('div', { class: 'seg', style: { width: 'fit-content' } });
-    [['off', 'OFF'], ['on', 'ON']].forEach(([v, lbl]) => {
-      const b = el('button', { class: (B.thinking ? 'on' : 'off') === v ? 'active' : '',
-        onclick: () => { B.thinking = v === 'on'; openRunConfigDrawer(); } }, lbl);
+    tmodes.forEach(v => {
+      const lbl = v === 'off' ? 'OFF' : v === 'adaptive' ? 'Adaptive' : v === 'adaptive_only' ? 'Adaptive' : 'Enabled';
+      const b = el('button', { class: B.thinkingMode === v ? 'active' : '',
+        onclick: () => { B.thinkingMode = v; B.thinking = v !== 'off'; openRunConfigDrawer(); } }, lbl);
       seg.appendChild(b);
     });
     return seg;
   })()));
 
+  // Effort level — options depend on selected model
+  const elevels = effortLevelsFor(effectiveModel);
+  if (elevels.length > 0) {
+    if (B.effort && !elevels.includes(B.effort)) B.effort = '';
+    const allOpts = [''].concat(elevels);
+    body.appendChild(buildField('EFFORT', (() => {
+      const seg = el('div', { class: 'seg', style: { width: 'fit-content' } });
+      allOpts.forEach(v => {
+        const b = el('button', { class: B.effort === v ? 'active' : '',
+          onclick: () => { B.effort = v; openRunConfigDrawer(); } }, v || 'default');
+        seg.appendChild(b);
+      });
+      return seg;
+    })()));
+  } else {
+    B.effort = '';
+    body.appendChild(buildField('EFFORT', el('span', { class: 'muted', style: { fontSize: '11px' } }, '此模型不支持 effort')));
+  }
+
   body.appendChild(buildField('MODEL OVERRIDE (optional)', el('input', { value: B.runModel, placeholder: '留空=使用上方 Model',
-    oninput: onChange('runModel'), class: 'mono',
+    oninput: e => { B.runModel = e.target.value.trim(); openRunConfigDrawer(); }, class: 'mono',
     style: { width: '100%', background: 'transparent', border: 'none', padding: '0' } })));
 
   const foot = el('div', null,
@@ -282,6 +309,8 @@ async function kickoffBenchRun() {
     target_base: B.targetBase, target_key: B.targetKey,
     model: B.runModel || B.model,
     concurrency: B.concurrency, thinking: B.thinking,
+    effort: B.effort || undefined,
+    thinking_mode: B.thinkingMode !== 'off' ? B.thinkingMode : undefined,
   };
   if (B.scope === 'custom') {
     if (B.lang) payload.language = B.lang;
@@ -305,6 +334,8 @@ async function kickoffBenchRun() {
     finalReport: null,
     error: null,
     thinking: B.thinking,
+    effort: B.effort || '',
+    thinkingMode: B.thinkingMode || '',
   };
   location.hash = '#/bench/run/' + tempId;
   runBenchStream(tempId, payload).catch(err => {
@@ -400,6 +431,7 @@ async function renderBenchRunRoute(runId) {
       kind: 'bench', state: 'done', historical: true,
       dataset: data.dataset_name, target: data.target || '',
       model: data.model, thinking: data.thinking,
+      effort: data.effort || '', thinkingMode: data.thinking_mode || '',
       startedAt: data.started_at ? new Date(data.started_at).getTime() : null,
       finishedAt: data.completed_at ? new Date(data.completed_at).getTime() : null,
       totalTasks: data.task_total, completedTasks: data.task_completed, errorTasks: data.task_errors,
@@ -462,7 +494,8 @@ function renderBenchHeader(run, runId) {
   cells.push(['RUN ID', el('span', { class: 'mono' }, runId.slice(0, 16) + (runId.length > 16 ? '…' : ''))]);
   cells.push(['DATASET', run.dataset || '—']);
   cells.push(['MODEL', el('span', { class: 'mono' }, run.model || '—')]);
-  cells.push(['THINKING', run.thinking ? 'on' : 'off']);
+  cells.push(['THINKING', run.thinkingMode || (run.thinking ? 'on' : 'off')]);
+  if (run.effort) cells.push(['EFFORT', run.effort]);
   if (run.state === 'running') {
     cells.push(['ELAPSED', el('span', { class: 'mono', id: 'benchLiveElapsed' }, fmtMs(Date.now() - run.startedAt))]);
     if (!run._tick) {
@@ -590,7 +623,9 @@ function rerunBench(runId) {
     Object.assign(State.bench, {
       targetBase: run.payload.target_base, targetKey: run.payload.target_key,
       model: run.payload.model, concurrency: run.payload.concurrency,
-      thinking: run.payload.thinking, lang: run.payload.language || '', category: run.payload.category || '',
+      thinking: run.payload.thinking,
+      effort: run.payload.effort || '', thinkingMode: run.payload.thinking_mode || '',
+      lang: run.payload.language || '', category: run.payload.category || '',
       limit: run.payload.limit || 0, scope: (run.payload.language || run.payload.category || run.payload.limit) ? 'custom' : 'all',
     });
     if (run.dataset) State.currentDataset = run.dataset;

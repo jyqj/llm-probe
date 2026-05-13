@@ -156,6 +156,15 @@ func TestGenericDataset_Filter(t *testing.T) {
 		t.Errorf("go limit=2 = %d, want 2", len(got))
 	}
 
+	// ImportantFirst selects the highest-signal tasks before applying limit.
+	ds.TaskList[0].Rubric = []RubricItem{{Annotations: RubricAnnotation{Importance: "low"}}}
+	ds.TaskList[1].Rubric = []RubricItem{{Annotations: RubricAnnotation{Importance: "must have"}}}
+	ds.TaskList[2].Rubric = []RubricItem{{Annotations: RubricAnnotation{Importance: "high"}}}
+	got = ds.Filter(Filter{Limit: 2, ImportantFirst: true})
+	if len(got) != 2 || got[0].TaskID != "2" || got[1].TaskID != "3" {
+		t.Errorf("important-first filter = %v, want [2 3]", got)
+	}
+
 	// By IDs
 	got = ds.Filter(Filter{TaskIDs: []string{"2", "4"}})
 	if len(got) != 2 || got[0].TaskID != "2" {

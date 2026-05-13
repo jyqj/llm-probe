@@ -31,12 +31,12 @@ type CheckDiffItem struct {
 
 // IntelligenceDiff compares intelligence task results.
 type IntelligenceDiff struct {
-	BaselineTaskCount      int            `json:"baseline_task_count"`
-	CurrentTaskCount       int            `json:"current_task_count"`
-	OverlappingTasks       int            `json:"overlapping_tasks"`
-	AggregateDeviation     float64        `json:"aggregate_deviation"`
-	AbsAggregateDeviation  float64        `json:"abs_aggregate_deviation"`
-	TaskDiffs              []TaskDiffItem `json:"task_diffs,omitempty"`
+	BaselineTaskCount     int            `json:"baseline_task_count"`
+	CurrentTaskCount      int            `json:"current_task_count"`
+	OverlappingTasks      int            `json:"overlapping_tasks"`
+	AggregateDeviation    float64        `json:"aggregate_deviation"`
+	AbsAggregateDeviation float64        `json:"abs_aggregate_deviation"`
+	TaskDiffs             []TaskDiffItem `json:"task_diffs,omitempty"`
 }
 
 // TaskDiffItem records one task's baseline vs current score.
@@ -99,11 +99,17 @@ func DiffIntelligence(baseline, current *intelligence.RunReport) *IntelligenceDi
 	var aggDev, absAggDev float64
 	for _, r := range current.Results {
 		bs, ok := baseScores[r.Task.TaskID]
-		if !ok || r.Score == nil {
+		if !ok {
+			continue
+		}
+		currentScore := 0.0
+		if r.Score != nil {
+			currentScore = *r.Score
+		} else if r.Error == "" {
 			continue
 		}
 		diff.OverlappingTasks++
-		dev := *r.Score - bs
+		dev := currentScore - bs
 		aggDev += dev
 		if dev < 0 {
 			absAggDev -= dev
@@ -113,7 +119,7 @@ func DiffIntelligence(baseline, current *intelligence.RunReport) *IntelligenceDi
 		diff.TaskDiffs = append(diff.TaskDiffs, TaskDiffItem{
 			TaskID:        r.Task.TaskID,
 			BaselineScore: bs,
-			CurrentScore:  *r.Score,
+			CurrentScore:  currentScore,
 			Deviation:     dev,
 		})
 	}

@@ -150,7 +150,7 @@ func (s *Store) CreateTarget(req TargetCreateRequest) (*Target, error) {
 	if req.IntelligenceLimit != nil {
 		intLimit = *req.IntelligenceLimit
 	}
-	intMaxLimit := 10
+	intMaxLimit := 0
 	if req.IntelligenceMaxLimit != nil {
 		intMaxLimit = *req.IntelligenceMaxLimit
 	}

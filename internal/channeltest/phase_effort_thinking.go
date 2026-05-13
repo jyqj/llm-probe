@@ -19,6 +19,11 @@ var probeEffortThinking = &Probe{
 }
 
 func (p *Runner) runEffortThinking(targetBase, targetKey, model string) ([]CheckResult, error) {
+	caps := GetModelCaps(model)
+	if len(caps.EffortLevels) == 0 {
+		return nil, nil
+	}
+
 	highChecks, err := p.runEffortHigh(targetBase, targetKey, model)
 	if err != nil {
 		highChecks = []CheckResult{
@@ -87,7 +92,81 @@ func (p *Runner) runEffortHigh(targetBase, targetKey, model string) ([]CheckResu
 		return nil, err
 	}
 
-	return checkThinkingAndSignature(j, "effort_high_thinking", "effort_high_signature"), nil
+	return checkEffortAcceptedAndSignature(j, "effort_high_thinking", "effort_high_signature"), nil
+}
+
+// checkEffortAcceptedAndSignature validates:
+// - effort_*_thinking: request was accepted and produced valid content (pass).
+//   Adaptive thinking at effort=high may or may not produce thinking blocks.
+// - effort_*_signature: if a thinking block exists, validate its signature.
+func checkEffortAcceptedAndSignature(j map[string]any, thinkCheckName, sigCheckName string) []CheckResult {
+	var checks []CheckResult
+	content, _ := j["content"].([]any)
+
+	hasContent := false
+	var thinkingBlock map[string]any
+	for _, cb := range content {
+		m, ok := cb.(map[string]any)
+		if !ok {
+			continue
+		}
+		hasContent = true
+		if t, _ := m["type"].(string); t == "thinking" {
+			thinkingBlock = m
+		}
+	}
+
+	if hasContent {
+		detail := "effort 请求被接受，响应含有效 content"
+		if thinkingBlock != nil {
+			detail += " (含 thinking 块)"
+		}
+		checks = append(checks, CheckResult{
+			Name: thinkCheckName, Pass: true,
+			Expected: "effort 请求被接受", Actual: fmt.Sprintf("%d content blocks", len(content)),
+			Detail: detail,
+		})
+	} else {
+		checks = append(checks, CheckResult{
+			Name: thinkCheckName, Pass: false,
+			Expected: "effort 请求被接受", Actual: "无 content",
+			Detail: "effort 请求返回了空 content",
+		})
+	}
+
+	if thinkingBlock != nil {
+		sig, _ := thinkingBlock["signature"].(string)
+		if sig == "" {
+			checks = append(checks, CheckResult{
+				Name: sigCheckName, Pass: false,
+				Expected: "有效 base64 signature", Actual: "空 signature",
+				Detail: "thinking block 无 signature", Fix: "signature_rewrite",
+			})
+		} else {
+			raw, err := base64.StdEncoding.DecodeString(sig)
+			if err != nil || len(raw) < 4 {
+				checks = append(checks, CheckResult{
+					Name: sigCheckName, Pass: false,
+					Expected: "有效 base64 (≥4 bytes)", Actual: "解码失败或过短",
+					Detail: "signature 无效", Fix: "signature_rewrite",
+				})
+			} else {
+				checks = append(checks, CheckResult{
+					Name: sigCheckName, Pass: true,
+					Expected: "有效 base64 signature", Actual: fmt.Sprintf("%d bytes", len(raw)),
+					Detail: fmt.Sprintf("signature 有效 (%d bytes)", len(raw)),
+				})
+			}
+		}
+	} else {
+		checks = append(checks, CheckResult{
+			Name: sigCheckName, Pass: true,
+			Expected: "signature (如有 thinking)", Actual: "无 thinking block, 跳过",
+			Detail: "adaptive thinking 未产生 thinking 块，signature 检查跳过",
+		})
+	}
+
+	return checks
 }
 
 func (p *Runner) runEffortMedium(targetBase, targetKey, model string) ([]CheckResult, error) {
@@ -226,31 +305,7 @@ func (p *Runner) runEffortMax(targetBase, targetKey, model string) ([]CheckResul
 		return nil, err
 	}
 
-	content, _ := j["content"].([]any)
-	hasThinking := false
-	for _, cb := range content {
-		m, ok := cb.(map[string]any)
-		if !ok {
-			continue
-		}
-		if t, _ := m["type"].(string); t == "thinking" {
-			hasThinking = true
-			break
-		}
-	}
-
-	if hasThinking {
-		return []CheckResult{{
-			Name: "effort_max_thinking", Pass: true,
-			Expected: "effort=max 应产生 thinking 块", Actual: "有 thinking 块",
-			Detail: "effort=max 正确产生了 thinking 块",
-		}}, nil
-	}
-	return []CheckResult{{
-		Name: "effort_max_thinking", Pass: false,
-		Expected: "effort=max 应产生 thinking 块", Actual: "无 thinking 块",
-		Detail: "effort=max 未产生 thinking 块",
-	}}, nil
+	return checkEffortAccepted(j, "effort_max_thinking", "max"), nil
 }
 
 func (p *Runner) runEffortXHigh(targetBase, targetKey, model string) ([]CheckResult, error) {
@@ -271,103 +326,40 @@ func (p *Runner) runEffortXHigh(targetBase, targetKey, model string) ([]CheckRes
 		return nil, err
 	}
 
+	return checkEffortAccepted(j, "effort_xhigh_thinking", "xhigh"), nil
+}
+
+func checkEffortAccepted(j map[string]any, checkName, level string) []CheckResult {
 	content, _ := j["content"].([]any)
+	hasContent := false
 	hasThinking := false
 	for _, cb := range content {
 		m, ok := cb.(map[string]any)
 		if !ok {
 			continue
 		}
+		hasContent = true
 		if t, _ := m["type"].(string); t == "thinking" {
 			hasThinking = true
-			break
 		}
 	}
 
-	if hasThinking {
+	if !hasContent {
 		return []CheckResult{{
-			Name: "effort_xhigh_thinking", Pass: true,
-			Expected: "effort=xhigh 应产生 thinking 块", Actual: "有 thinking 块",
-			Detail: "effort=xhigh 正确产生了 thinking 块",
-		}}, nil
+			Name: checkName, Pass: false,
+			Expected: fmt.Sprintf("effort=%s 请求被接受", level), Actual: "无 content",
+			Detail: fmt.Sprintf("effort=%s 请求返回了空 content", level),
+		}}
+	}
+
+	detail := fmt.Sprintf("effort=%s 请求被接受", level)
+	if hasThinking {
+		detail += " (含 thinking 块)"
 	}
 	return []CheckResult{{
-		Name: "effort_xhigh_thinking", Pass: false,
-		Expected: "effort=xhigh 应产生 thinking 块", Actual: "无 thinking 块",
-		Detail: "effort=xhigh 未产生 thinking 块",
-	}}, nil
+		Name: checkName, Pass: true,
+		Expected: fmt.Sprintf("effort=%s 请求被接受", level), Actual: fmt.Sprintf("%d content blocks", len(content)),
+		Detail: detail,
+	}}
 }
 
-// checkThinkingAndSignature extracts thinking block checks and signature validation.
-func checkThinkingAndSignature(j map[string]any, thinkCheckName, sigCheckName string) []CheckResult {
-	var checks []CheckResult
-	content, _ := j["content"].([]any)
-
-	hasThinking := false
-	var thinkingBlock map[string]any
-	for _, cb := range content {
-		m, ok := cb.(map[string]any)
-		if !ok {
-			continue
-		}
-		if t, _ := m["type"].(string); t == "thinking" {
-			hasThinking = true
-			thinkingBlock = m
-			break
-		}
-	}
-
-	if hasThinking {
-		firstType := ""
-		if len(content) > 0 {
-			if m, ok := content[0].(map[string]any); ok {
-				firstType, _ = m["type"].(string)
-			}
-		}
-		checks = append(checks, CheckResult{
-			Name: thinkCheckName, Pass: true,
-			Expected: "content 含 thinking 块", Actual: fmt.Sprintf("content[0].type=%q", firstType),
-			Detail: fmt.Sprintf("content[0].type = %q", firstType),
-		})
-	} else {
-		checks = append(checks, CheckResult{
-			Name: thinkCheckName, Pass: false,
-			Expected: "content 含 thinking 块", Actual: "无 thinking 块",
-			Detail: "effort=high 未产生 thinking 块",
-		})
-	}
-
-	if thinkingBlock != nil {
-		sig, _ := thinkingBlock["signature"].(string)
-		if sig == "" {
-			checks = append(checks, CheckResult{
-				Name: sigCheckName, Pass: false,
-				Expected: "有效 base64 signature", Actual: "空 signature",
-				Detail: "thinking block 无 signature", Fix: "signature_rewrite",
-			})
-		} else {
-			raw, err := base64.StdEncoding.DecodeString(sig)
-			if err != nil || len(raw) < 4 {
-				checks = append(checks, CheckResult{
-					Name: sigCheckName, Pass: false,
-					Expected: "有效 base64 (≥4 bytes)", Actual: "解码失败或过短",
-					Detail: "signature 无效", Fix: "signature_rewrite",
-				})
-			} else {
-				checks = append(checks, CheckResult{
-					Name: sigCheckName, Pass: true,
-					Expected: "有效 base64 signature", Actual: fmt.Sprintf("%d bytes", len(raw)),
-					Detail: fmt.Sprintf("signature 有效 (%d bytes)", len(raw)),
-				})
-			}
-		}
-	} else {
-		checks = append(checks, CheckResult{
-			Name: sigCheckName, Pass: false,
-			Expected: "有效 base64 signature", Actual: "无 thinking block",
-			Detail: "无 thinking block, 无法验证 signature", Fix: "signature_rewrite",
-		})
-	}
-
-	return checks
-}

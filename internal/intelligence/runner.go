@@ -25,10 +25,11 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 	}
 
 	tasks := ds.Filter(Filter{
-		Language: req.Language,
-		Category: req.Category,
-		TaskIDs:  req.TaskIDs,
-		Limit:    req.Limit,
+		Language:       req.Language,
+		Category:       req.Category,
+		TaskIDs:        req.TaskIDs,
+		Limit:          req.Limit,
+		ImportantFirst: req.ImportantFirst,
 	})
 	started := time.Now()
 	total := len(tasks)
@@ -247,17 +248,14 @@ func truncateStr(s string, n int) string {
 }
 
 // deriveThinkingParam infers the correct thinking parameter from model name.
-// Returns nil for models that don't support thinking (e.g. Haiku, unknown models).
 func deriveThinkingParam(model string) map[string]any {
 	m := strings.ToLower(model)
 	switch {
-	case strings.Contains(m, "haiku"):
-		return nil
 	case strings.Contains(m, "opus-4-7"):
 		return map[string]any{"type": "adaptive"}
 	case strings.Contains(m, "opus-4-6"), strings.Contains(m, "sonnet-4-6"):
 		return map[string]any{"type": "adaptive"}
-	case strings.Contains(m, "opus-4-5"):
+	case strings.Contains(m, "opus-4-5"), strings.Contains(m, "haiku"):
 		return map[string]any{"type": "enabled", "budget_tokens": 10000}
 	case strings.Contains(m, "sonnet"), strings.Contains(m, "opus"):
 		return map[string]any{"type": "adaptive"}

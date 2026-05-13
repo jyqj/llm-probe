@@ -56,10 +56,11 @@ func (t Task) Summary(includeRubric bool) TaskSummary {
 
 // Filter controls which tasks to select.
 type Filter struct {
-	Language string
-	Category string
-	TaskIDs  []string
-	Limit    int
+	Language       string
+	Category       string
+	TaskIDs        []string
+	Limit          int
+	ImportantFirst bool
 }
 
 // Stats describes a dataset's composition.
@@ -88,18 +89,19 @@ type Dataset interface {
 
 // RunRequest is the generic request to run a intelligence.
 type RunRequest struct {
-	TargetBase   string   `json:"target_base"`
-	TargetKey    string   `json:"target_key"`
-	Model        string   `json:"model"`
-	TaskIDs      []string `json:"task_ids,omitempty"`
-	Language     string   `json:"language,omitempty"`
-	Category     string   `json:"category,omitempty"`
-	Limit        int      `json:"limit,omitempty"`
-	Thinking     bool     `json:"thinking,omitempty"`
-	Effort       string   `json:"effort,omitempty"`
-	ThinkingMode string   `json:"thinking_mode,omitempty"`
-	MaxTokens    int      `json:"max_tokens,omitempty"`
-	Concurrency  int      `json:"concurrency,omitempty"`
+	TargetBase     string   `json:"target_base"`
+	TargetKey      string   `json:"target_key"`
+	Model          string   `json:"model"`
+	TaskIDs        []string `json:"task_ids,omitempty"`
+	Language       string   `json:"language,omitempty"`
+	Category       string   `json:"category,omitempty"`
+	Limit          int      `json:"limit,omitempty"`
+	ImportantFirst bool     `json:"important_first,omitempty"`
+	Thinking       bool     `json:"thinking,omitempty"`
+	Effort         string   `json:"effort,omitempty"`
+	ThinkingMode   string   `json:"thinking_mode,omitempty"`
+	MaxTokens      int      `json:"max_tokens,omitempty"`
+	Concurrency    int      `json:"concurrency,omitempty"`
 }
 
 // RunReport is the complete result of a intelligence-test run.

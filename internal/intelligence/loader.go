@@ -68,8 +68,14 @@ func (d *GenericDataset) Filter(f Filter) []Task {
 			continue
 		}
 		out = append(out, task)
-		if len(out) >= limit {
+		if !f.ImportantFirst && len(out) >= limit {
 			break
+		}
+	}
+	if f.ImportantFirst {
+		SortImportantFirst(out)
+		if len(out) > limit {
+			out = out[:limit]
 		}
 	}
 	return out
@@ -101,6 +107,35 @@ func UniqueSorted(values map[string]int) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// SortImportantFirst orders tasks by rubric importance while preserving source
+// order for equal priority. It is used by continuous benchmark monitoring so
+// a low-frequency run covers the highest-signal tasks first.
+func SortImportantFirst(tasks []Task) {
+	sort.SliceStable(tasks, func(i, j int) bool {
+		return taskImportanceScore(tasks[i]) > taskImportanceScore(tasks[j])
+	})
+}
+
+func taskImportanceScore(t Task) int {
+	score := 0
+	for _, r := range t.Rubric {
+		switch strings.ToLower(strings.TrimSpace(r.Annotations.Importance)) {
+		case "must have", "must-have", "critical", "required":
+			score += 100
+		case "should have", "should-have", "high", "important":
+			score += 50
+		case "nice to have", "nice-to-have", "medium":
+			score += 10
+		case "low", "optional":
+			score++
+		}
+	}
+	if t.ReferenceAnswer != "" {
+		score += 5
+	}
+	return score
 }
 
 // ── Loaders ──

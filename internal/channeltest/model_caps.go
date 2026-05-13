@@ -19,8 +19,8 @@ type ModelCaps struct {
 var knownModels = map[string]ModelCaps{
 	"claude-haiku-4-5": {
 		Family: "haiku", Generation: "4-5",
-		Thinking: false, ThinkingMode: "", Signatures: false,
-		DisplayDefault: "", MaxOutput: 64000,
+		Thinking: true, ThinkingMode: "enabled", Signatures: false,
+		DisplayDefault: "summarized", MaxOutput: 64000,
 		InputPrice: 1.0, OutputPrice: 5.0,
 		EffortLevels: nil,
 	},
@@ -36,7 +36,7 @@ var knownModels = map[string]ModelCaps{
 		Thinking: true, ThinkingMode: "enabled", Signatures: true,
 		DisplayDefault: "summarized", MaxOutput: 64000,
 		InputPrice: 5.0, OutputPrice: 25.0,
-		EffortLevels: []string{"low", "medium", "high", "max"},
+		EffortLevels: []string{"low", "medium", "high"},
 	},
 	"claude-opus-4-6": {
 		Family: "opus", Generation: "4-6",

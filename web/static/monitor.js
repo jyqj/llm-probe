@@ -170,7 +170,7 @@ async function openTargetDrawer(existingTarget) {
   let checkType = t.check_type || 'channel';
   let intDataset = t.intelligence_dataset || '';
   let intLimit = t.intelligence_limit || 3;
-  let intMaxLimit = t.intelligence_max_limit || 10;
+  let intMaxLimit = t.intelligence_max_limit != null ? t.intelligence_max_limit : 0;
   let intThreshold = t.intelligence_threshold || 1.0;
   let baselineID = t.baseline_id || '';
   let effort = t.effort || '';
@@ -211,9 +211,9 @@ async function openTargetDrawer(existingTarget) {
       oninput: e => { intLimit = parseInt(e.target.value) || 3; },
       style: { width: '80px', background: 'transparent', border: 'none', padding: '0' }
     })));
-    intSection.appendChild(buildField('最大采样（升级）', el('input', {
-      type: 'number', min: 1, max: 500, value: intMaxLimit, class: 'mono',
-      oninput: e => { intMaxLimit = parseInt(e.target.value) || 10; },
+    intSection.appendChild(buildField('升级采样 / 0=全量', el('input', {
+      type: 'number', min: 0, max: 500, value: intMaxLimit, class: 'mono',
+      oninput: e => { intMaxLimit = parseInt(e.target.value) || 0; },
       style: { width: '80px', background: 'transparent', border: 'none', padding: '0' }
     })));
     intSection.appendChild(buildField('偏差阈值 / TASK', el('input', {
