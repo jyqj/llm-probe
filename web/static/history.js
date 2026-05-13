@@ -241,7 +241,22 @@ function buildHistoryFilters(H, repaint, kind) {
     }));
   }
   if (H.selected.size > 0) {
-    bar.appendChild(btn('清除', {
+    bar.appendChild(btn('删除所选 (' + H.selected.size + ')', {
+      size: 'sm', danger: true, icon: 'trash',
+      onClick: async () => {
+        if (!confirm('确定删除所选的 ' + H.selected.size + ' 条记录？')) return;
+        const ids = Array.from(H.selected);
+        const endpoint = kind === 'channel' ? '/api/channel/history/' : '/api/intelligence/history/';
+        let ok = 0;
+        for (const id of ids) {
+          try { await api(endpoint + encodeURIComponent(id), { method: 'DELETE' }); ok++; } catch {}
+        }
+        toast('已删除 ' + ok + ' 条', 'good');
+        H.selected.clear();
+        if (kind === 'channel') renderChannelHistory(); else renderBenchHistory();
+      }
+    }));
+    bar.appendChild(btn('取消选择', {
       size: 'sm', ghost: true, onClick: () => { H.selected.clear(); repaint(); }
     }));
   }

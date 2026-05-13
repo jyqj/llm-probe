@@ -27,6 +27,17 @@ type ScoreReport struct {
 	ChecksPassed    int             `json:"checks_passed"`
 }
 
+// infoOnlyChecks are checks that still run and display but do not affect the score.
+// These are CDN/infrastructure-level headers that all proxies legitimately lack.
+var infoOnlyChecks = map[string]bool{
+	"headers":        true, // Anthropic rate-limit headers (CDN layer)
+	"cf_headers":     true, // Cf-Ray, Server, _cfuvid (Cloudflare)
+	"server_timing":  true, // Server-Timing / X-Envoy (CDN)
+	"cf_ray_format":  true, // Cf-Ray hex format (Cloudflare)
+	"cookie_domain":  true, // Set-Cookie anthropic.com (Cloudflare)
+	"server_header":  true, // Server: cloudflare (Cloudflare)
+}
+
 // CalculateScore computes a weighted score from check results.
 func CalculateScore(checks []CheckResult, mode string) *ScoreReport {
 	// Step 1: Deduplicate checks per category — same name → worst result
@@ -36,6 +47,9 @@ func CalculateScore(checks []CheckResult, mode string) *ScoreReport {
 	}
 	deduped := map[dedupKey]CheckResult{}
 	for _, c := range checks {
+		if infoOnlyChecks[c.Name] {
+			continue
+		}
 		cat, ok := checkCategoryMap[c.Name]
 		if !ok {
 			continue
