@@ -24,10 +24,15 @@ type Report struct {
 	Target            target.Config           `json:"target"`
 	StartedAt         time.Time               `json:"started_at"`
 	ElapsedMs         int64                   `json:"elapsed_ms"`
+	OverallStatus     string                  `json:"overall_status"`
+	OverallScore      float64                 `json:"overall_score"`
 	Channel           *channeltest.Report     `json:"channel,omitempty"`
+	ChannelStatus     string                  `json:"channel_status,omitempty"`
 	ChannelError      string                  `json:"channel_error,omitempty"`
 	Intelligence      *intelligence.RunReport `json:"intelligence,omitempty"`
+	IntelligenceStatus string                 `json:"intelligence_status,omitempty"`
 	IntelligenceError string                  `json:"intelligence_error,omitempty"`
+	Recommendations   []string                `json:"recommendations,omitempty"`
 }
 
 // Runner orchestrates channeltest + intelligence without owning either domain's logic.
@@ -83,5 +88,70 @@ func (r *Runner) Run(ctx context.Context, req Request) *Report {
 	}
 
 	report.ElapsedMs = time.Since(started).Milliseconds()
+
+	// Derive overall status and score
+	report.OverallStatus, report.OverallScore, report.ChannelStatus, report.IntelligenceStatus, report.Recommendations = deriveOverall(report)
 	return report
+}
+
+func deriveOverall(r *Report) (status string, score float64, chStatus, intStatus string, recs []string) {
+	chStatus = "skipped"
+	intStatus = "skipped"
+	var scores []float64
+
+	if r.ChannelError != "" {
+		chStatus = "error"
+	} else if r.Channel != nil && r.Channel.Score != nil {
+		s := r.Channel.Score.TotalScore
+		scores = append(scores, s)
+		switch {
+		case s >= 80:
+			chStatus = "ok"
+		case s >= 50:
+			chStatus = "warning"
+			recs = append(recs, "渠道得分偏低,建议检查渠道配置")
+		default:
+			chStatus = "critical"
+			recs = append(recs, "渠道得分极低,疑似非官方渠道")
+		}
+	}
+
+	if r.IntelligenceError != "" {
+		intStatus = "error"
+	} else if r.Intelligence != nil {
+		rate := 0.0
+		if r.Intelligence.TaskTotal > 0 {
+			rate = float64(r.Intelligence.TaskCompleted-r.Intelligence.TaskErrors) / float64(r.Intelligence.TaskTotal) * 100
+		}
+		scores = append(scores, rate)
+		switch {
+		case r.Intelligence.TaskErrors == 0:
+			intStatus = "ok"
+		case r.Intelligence.TaskErrors <= r.Intelligence.TaskTotal/10:
+			intStatus = "warning"
+			recs = append(recs, "Benchmark 有少量错误,建议检查具体失败项")
+		default:
+			intStatus = "critical"
+			recs = append(recs, "Benchmark 大量失败,模型能力存疑")
+		}
+	}
+
+	if len(scores) > 0 {
+		for _, s := range scores {
+			score += s
+		}
+		score /= float64(len(scores))
+	}
+
+	switch {
+	case chStatus == "critical" || intStatus == "critical":
+		status = "critical"
+	case chStatus == "warning" || intStatus == "warning":
+		status = "warning"
+	case chStatus == "error" || intStatus == "error":
+		status = "warning"
+	default:
+		status = "ok"
+	}
+	return
 }

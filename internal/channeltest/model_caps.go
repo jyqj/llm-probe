@@ -4,15 +4,16 @@ import "strings"
 
 // ModelCaps describes the capabilities and pricing of a Claude model.
 type ModelCaps struct {
-	Family         string  // "haiku", "sonnet", "opus"
-	Generation     string  // "4-5", "4-6", "4-7"
-	Thinking       bool    // supports any thinking mode
-	ThinkingMode   string  // "adaptive_only", "adaptive", "enabled", "" (none)
-	Signatures     bool    // thinking blocks have signatures
-	DisplayDefault string  // "summarized" or "omitted"
-	MaxOutput      int     // max output tokens
-	InputPrice     float64 // USD per million input tokens
-	OutputPrice    float64 // USD per million output tokens
+	Family         string   // "haiku", "sonnet", "opus"
+	Generation     string   // "4-5", "4-6", "4-7"
+	Thinking       bool     // supports any thinking mode
+	ThinkingMode   string   // "adaptive_only", "adaptive", "enabled", "" (none)
+	Signatures     bool     // thinking blocks have signatures
+	DisplayDefault string   // "summarized" or "omitted"
+	MaxOutput      int      // max output tokens
+	InputPrice     float64  // USD per million input tokens
+	OutputPrice    float64  // USD per million output tokens
+	EffortLevels   []string // supported effort levels: "low","medium","high","xhigh","max"
 }
 
 var knownModels = map[string]ModelCaps{
@@ -21,30 +22,35 @@ var knownModels = map[string]ModelCaps{
 		Thinking: false, ThinkingMode: "", Signatures: false,
 		DisplayDefault: "", MaxOutput: 64000,
 		InputPrice: 1.0, OutputPrice: 5.0,
+		EffortLevels: nil,
 	},
 	"claude-sonnet-4-6": {
 		Family: "sonnet", Generation: "4-6",
 		Thinking: true, ThinkingMode: "adaptive", Signatures: true,
 		DisplayDefault: "summarized", MaxOutput: 64000,
 		InputPrice: 3.0, OutputPrice: 15.0,
+		EffortLevels: []string{"low", "medium", "high", "max"},
 	},
 	"claude-opus-4-5": {
 		Family: "opus", Generation: "4-5",
 		Thinking: true, ThinkingMode: "enabled", Signatures: true,
 		DisplayDefault: "summarized", MaxOutput: 64000,
 		InputPrice: 5.0, OutputPrice: 25.0,
+		EffortLevels: []string{"low", "medium", "high", "max"},
 	},
 	"claude-opus-4-6": {
 		Family: "opus", Generation: "4-6",
 		Thinking: true, ThinkingMode: "adaptive", Signatures: true,
 		DisplayDefault: "summarized", MaxOutput: 128000,
 		InputPrice: 5.0, OutputPrice: 25.0,
+		EffortLevels: []string{"low", "medium", "high", "max"},
 	},
 	"claude-opus-4-7": {
 		Family: "opus", Generation: "4-7",
 		Thinking: true, ThinkingMode: "adaptive_only", Signatures: true,
 		DisplayDefault: "omitted", MaxOutput: 128000,
 		InputPrice: 5.0, OutputPrice: 25.0,
+		EffortLevels: []string{"low", "medium", "high", "xhigh", "max"},
 	},
 }
 
@@ -86,6 +92,22 @@ func ThinkingEnabledParam(model string, budget int) map[string]any {
 	return map[string]any{"type": "enabled", "budget_tokens": budget}
 }
 
+// SupportsEffort checks if a model supports a given effort level.
+func SupportsEffort(model, effort string) bool {
+	caps := GetModelCaps(model)
+	for _, e := range caps.EffortLevels {
+		if e == effort {
+			return true
+		}
+	}
+	return false
+}
+
+// EffortParam builds the output_config for a given effort level.
+func EffortParam(effort string) map[string]any {
+	return map[string]any{"effort": effort}
+}
+
 // BillingEstimate holds cost estimation for a test run.
 type BillingEstimate struct {
 	InputTokens  int     `json:"input_tokens"`
@@ -94,6 +116,7 @@ type BillingEstimate struct {
 	OutputCost   float64 `json:"output_cost"`
 	TotalCost    float64 `json:"total_cost"`
 	PriceRatio   float64 `json:"price_ratio"`
+	Source       string  `json:"source,omitempty"`
 }
 
 // EstimateBilling computes cost from token counts and model pricing.

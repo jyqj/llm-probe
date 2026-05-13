@@ -1,6 +1,7 @@
 package channeltest
 
 import (
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -17,6 +18,23 @@ type StoreEntry struct {
 	Running  bool // true while async channel test is running
 }
 
+// StorePersist holds callbacks for SQLite persistence, injected by the caller
+// to avoid an import cycle between channeltest and persist.
+type StorePersist struct {
+	DB         *sql.DB
+	LogErr     func(op string, err error)
+	Save       func(db *sql.DB, r *Report) error
+	Delete     func(db *sql.DB, id string) error
+	UpdateName func(db *sql.DB, id, name string) error
+	Load       func(db *sql.DB) ([]*Report, error)
+}
+
+func (p *StorePersist) logErr(op string, err error) {
+	if err != nil && p != nil && p.LogErr != nil {
+		p.LogErr(op, err)
+	}
+}
+
 // Store caches per-upstream channel test results only.
 type Store struct {
 	mu       sync.RWMutex
@@ -26,17 +44,31 @@ type Store struct {
 	logger   *slog.Logger
 	autoRun  bool
 	onReport ReportSink
+	persist  *StorePersist
 }
 
 // NewStore creates a channel test store.
-func NewStore(runner *Runner, logger *slog.Logger, autoRun bool, onReport ReportSink) *Store {
-	return &Store{
+func NewStore(runner *Runner, logger *slog.Logger, autoRun bool, onReport ReportSink, p *StorePersist) *Store {
+	s := &Store{
 		entries:  make(map[string]*StoreEntry),
 		runner:   runner,
 		logger:   logger,
 		autoRun:  autoRun,
 		onReport: onReport,
+		persist:  p,
 	}
+
+	// Load persisted history (newest-first from DB, reverse to oldest-first for in-memory slice).
+	if p != nil && p.Load != nil {
+		if loaded, err := p.Load(p.DB); err == nil && len(loaded) > 0 {
+			for i, j := 0, len(loaded)-1; i < j; i, j = i+1, j-1 {
+				loaded[i], loaded[j] = loaded[j], loaded[i]
+			}
+			s.history = loaded
+		}
+	}
+
+	return s
 }
 
 // EnsureRun triggers async channel test for an upstream when no cached report exists.
@@ -83,6 +115,9 @@ func (s *Store) SetResult(upstreamBase string, report *Report) {
 			report.ID = fmt.Sprintf("%d", time.Now().UnixNano())
 		}
 		s.history = append(s.history, report)
+		if p := s.persist; p != nil && p.Save != nil {
+			p.logErr("save_channel_history", p.Save(p.DB, report))
+		}
 	}
 	s.mu.Unlock()
 
@@ -121,6 +156,9 @@ func (s *Store) DeleteHistory(id string) bool {
 	for i, r := range s.history {
 		if r.ID == id {
 			s.history = append(s.history[:i], s.history[i+1:]...)
+			if p := s.persist; p != nil && p.Delete != nil {
+				p.logErr("delete_channel_history", p.Delete(p.DB, id))
+			}
 			return true
 		}
 	}
@@ -230,6 +268,9 @@ func (s *Store) UpdateHistoryName(id, name string) bool {
 	for _, r := range s.history {
 		if r.ID == id {
 			r.ChannelName = name
+			if p := s.persist; p != nil && p.UpdateName != nil {
+				p.logErr("update_channel_name", p.UpdateName(p.DB, id, name))
+			}
 			return true
 		}
 	}

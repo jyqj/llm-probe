@@ -31,6 +31,26 @@ type Config struct {
 	Log      LogConfig      `yaml:"log"`
 	Admin    AdminConfig    `yaml:"admin"`
 	Channel  ChannelConfig  `yaml:"channel"`
+	Alert    AlertCfg       `yaml:"alert"`
+	Storage  StorageConfig  `yaml:"storage"`
+}
+
+// StorageConfig controls persistent storage.
+type StorageConfig struct {
+	Path string `yaml:"path"`
+}
+
+// AlertCfg controls alert webhook configuration.
+type AlertCfg struct {
+	Enabled  bool           `yaml:"enabled"`
+	Webhooks []WebhookCfg   `yaml:"webhooks"`
+}
+
+// WebhookCfg is a notification target in config.
+type WebhookCfg struct {
+	Name    string            `yaml:"name"`
+	URL     string            `yaml:"url"`
+	Headers map[string]string `yaml:"headers,omitempty"`
 }
 
 type ServerConfig struct {
@@ -74,6 +94,7 @@ func Load(path string) (*Config, error) {
 		Upstream: UpstreamConfig{Timeout: 300},
 		Models:   ModelConfig{DefaultModel: "claude-opus-4-6"},
 		Log:      LogConfig{Level: "info"},
+		Storage:  StorageConfig{Path: "data/detector.db"},
 	}
 	if err := yaml.Unmarshal([]byte(expandEnvWithDefaults(string(data))), cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)

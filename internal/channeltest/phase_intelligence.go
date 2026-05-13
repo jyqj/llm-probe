@@ -10,7 +10,6 @@ import (
 var probeIntelligence = &Probe{
 	ID: "intelligence", Label: "降智检测探针",
 	NeedsThinking: true,
-	OnlyModels:    []string{"claude-opus-4-6"},
 	Tags:          []string{},
 	EstTokens:     500,
 	Checks:    []string{"intelligence_answer"},
@@ -20,16 +19,16 @@ var probeIntelligence = &Probe{
 var numberRe = regexp.MustCompile(`\d+`)
 
 func (p *Runner) runIntelligence(targetBase, targetKey, model string) ([]CheckResult, error) {
-	body := toJSON(map[string]any{
+	req := map[string]any{
 		"model":      model,
 		"max_tokens": 8000,
 		"stream":     false,
-		"thinking": map[string]any{
-			"type":          "enabled",
-			"budget_tokens": 5000,
-		},
-		"messages": []any{umsg("请逐步推理：在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形）。苹果味圆形7个五角星7个，桃子味圆形9个五角星6个，西瓜味圆形8个五角星4个。最少取出多少个糖才能保证手中同时拥有不同形状的苹果味和桃子味的糖？请在回答最后一行只写一个数字作为最终答案。")},
-	})
+		"messages":   []any{umsg("请逐步推理：在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形）。苹果味圆形7个五角星7个，桃子味圆形9个五角星6个，西瓜味圆形8个五角星4个。最少取出多少个糖才能保证手中同时拥有不同形状的苹果味和桃子味的糖？请在回答最后一行只写一个数字作为最终答案。")},
+	}
+	if tp := ThinkingParam(model); tp != nil {
+		req["thinking"] = tp
+	}
+	body := toJSON(req)
 
 	j, err := p.sendReadJSON(targetBase, targetKey, body)
 	if err != nil {

@@ -88,15 +88,18 @@ type Dataset interface {
 
 // RunRequest is the generic request to run a intelligence.
 type RunRequest struct {
-	TargetBase  string   `json:"target_base"`
-	TargetKey   string   `json:"target_key"`
-	Model       string   `json:"model"`
-	TaskIDs     []string `json:"task_ids,omitempty"`
-	Language    string   `json:"language,omitempty"`
-	Category    string   `json:"category,omitempty"`
-	Limit       int      `json:"limit,omitempty"`
-	Thinking    bool     `json:"thinking,omitempty"`
-	Concurrency int      `json:"concurrency,omitempty"`
+	TargetBase   string   `json:"target_base"`
+	TargetKey    string   `json:"target_key"`
+	Model        string   `json:"model"`
+	TaskIDs      []string `json:"task_ids,omitempty"`
+	Language     string   `json:"language,omitempty"`
+	Category     string   `json:"category,omitempty"`
+	Limit        int      `json:"limit,omitempty"`
+	Thinking     bool     `json:"thinking,omitempty"`
+	Effort       string   `json:"effort,omitempty"`
+	ThinkingMode string   `json:"thinking_mode,omitempty"`
+	MaxTokens    int      `json:"max_tokens,omitempty"`
+	Concurrency  int      `json:"concurrency,omitempty"`
 }
 
 // RunReport is the complete result of a intelligence-test run.
@@ -108,6 +111,9 @@ type RunReport struct {
 	Target         string          `json:"target"`
 	Model          string          `json:"model"`
 	Thinking       bool            `json:"thinking,omitempty"`
+	Effort         string          `json:"effort,omitempty"`
+	ThinkingMode   string          `json:"thinking_mode,omitempty"`
+	MaxTokens      int             `json:"max_tokens,omitempty"`
 	StartedAt      time.Time       `json:"started_at"`
 	ElapsedMs      int64           `json:"elapsed_ms"`
 	TaskTotal      int             `json:"task_total"`
@@ -115,16 +121,24 @@ type RunReport struct {
 	TaskErrors     int             `json:"task_errors"`
 	Results        []TaskRunResult `json:"results"`
 	EvaluationNote string          `json:"evaluation_note"`
+	ScoreTotal     *float64        `json:"score_total,omitempty"`
+	PassRate       *float64        `json:"pass_rate,omitempty"`
+	TotalEvaluated int             `json:"total_evaluated,omitempty"`
+	TotalPassed    int             `json:"total_passed,omitempty"`
 }
 
 // TaskRunResult is the outcome of running one task.
 type TaskRunResult struct {
-	Index     int          `json:"index"`
-	Task      TaskSummary  `json:"task"`
-	Answer    string       `json:"answer,omitempty"`
-	Error     string       `json:"error,omitempty"`
-	ElapsedMs int64        `json:"elapsed_ms"`
-	Rubric    []RubricItem `json:"rubric,omitempty"`
+	Index       int          `json:"index"`
+	Task        TaskSummary  `json:"task"`
+	Answer      string       `json:"answer,omitempty"`
+	Error       string       `json:"error,omitempty"`
+	ElapsedMs   int64        `json:"elapsed_ms"`
+	Rubric      []RubricItem `json:"rubric,omitempty"`
+	Pass        *bool        `json:"pass,omitempty"`
+	Score       *float64     `json:"score,omitempty"`
+	EvalType    string       `json:"eval_type,omitempty"`
+	JudgeReason string       `json:"judge_reason,omitempty"`
 }
 
 // StreamEvent is sent for each completed task during streaming.

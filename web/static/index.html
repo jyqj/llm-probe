@@ -3,518 +3,73 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LLM Probe · 渠道测试 + Benchmark</title>
+<title>LLM Probe · Channel + Benchmark</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <!-- ═══════════════════ TOPBAR ═══════════════════ -->
 <header class="topbar">
   <div class="brand">
-    <div class="brand-mark"></div>
-    Probe <small>· Channel & Benchmark Suite</small>
+    <span class="glyph">▍</span>probe
   </div>
 
-  <div class="appswitch" role="tablist">
-    <button class="active" data-app="channel" onclick="switchApp('channel')">
-      <span class="dot"></span> 渠道测试 <span class="muted" style="font-size:11px;margin-left:2px">Channel</span>
-    </button>
-    <button data-app="bench" onclick="switchApp('bench')">
-      <span class="dot"></span> 智商 Benchmark
-    </button>
-  </div>
+  <nav class="app-tabs" id="appTabs">
+    <button data-tab="channel"><span class="led"></span>Channel</button>
+    <button data-tab="bench"><span class="led"></span>Benchmark</button>
+    <button data-tab="monitor"><span class="led"></span>Monitor</button>
+  </nav>
 
   <div class="topbar-right">
-    <div class="conn" id="connStatus">
-      <span class="pulse"></span>
-      <span id="connLabel">未配置</span>
-    </div>
-    <button class="iconbtn" title="设置" onclick="switchApp('settings')">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-    </button>
+    <a href="#/settings" class="iconbtn" title="设置 · S">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </a>
   </div>
 </header>
 
+<!-- ═══════════════════ SHELL ═══════════════════ -->
+<div class="shell">
 
-<!-- ═══════════════════ APP: CHANNEL ═══════════════════ -->
-<section class="app-pane app-body" data-app-pane="channel">
-  <aside class="side">
-    <div class="side-section">
-      <div class="side-label">Channel</div>
-      <a class="side-link active" id="sideConfig" onclick="showChannelView('config')">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polygon points="5,3 19,12 5,21" fill="currentColor" stroke="none"/></svg>
-        新建检测
-      </a>
-      <a class="side-link" id="sideReport" onclick="showChannelView('report')">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
-        检测报告
-      </a>
-      <a class="side-link" id="sideHistory" onclick="showChannelView('history')">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        历史记录
-      </a>
-    </div>
-    <div class="side-foot">
-      <div class="avatar">P</div>
-      <div>
-        <div style="color:var(--ink-2);font-weight:500">llm-probe</div>
-        <div>v3.0 · 渠道测试</div>
-      </div>
-    </div>
+  <!-- LEFT RAIL — workspace-scoped navigation, NO 'report' link -->
+  <aside class="rail" id="rail">
+    <!-- populated by router per current app -->
   </aside>
 
+  <!-- MAIN — single mount, route-driven -->
   <main class="main">
-
-    <!-- ═══ VIEW: CONFIG (新建检测) ═══ -->
-    <div id="viewConfig">
-      <div class="page-head">
-        <div class="eyebrow">CHANNEL · 渠道测试</div>
-        <h1 class="h1">这条 API 渠道<em>真的是</em> Claude 吗?</h1>
-        <p class="page-sub">通过指纹、结构、签名、行为、多模态五个维度的探测,核验你接入的渠道是否真正连接到 Anthropic 官方。</p>
-      </div>
-
-      <div class="target-bar">
-        <div class="target-field" style="flex:2">
-          <div class="target-label">Target Base URL</div>
-          <input id="targetBase" class="input mono" placeholder="https://api.example.com">
-        </div>
-        <div class="target-field" style="flex:1.5">
-          <div class="target-label">API Key</div>
-          <input id="targetKey" class="input mono" type="password" placeholder="sk-...">
-        </div>
-        <div class="target-field" style="flex:1">
-          <div class="target-label">Channel Name</div>
-          <input id="channelName" class="input" placeholder="(auto)">
-        </div>
-      </div>
-      <div class="target-bar" style="margin-top:-8px">
-        <div class="target-field" style="flex:2">
-          <div class="target-label">Models</div>
-          <div id="modelCheckboxes" class="model-chips">
-            <label class="model-chip"><input type="checkbox" value="claude-sonnet-4-6" checked> sonnet-4-6</label>
-            <label class="model-chip"><input type="checkbox" value="claude-opus-4-6"> opus-4-6</label>
-            <label class="model-chip"><input type="checkbox" value="claude-opus-4-7"> opus-4-7</label>
-            <label class="model-chip"><input type="checkbox" value="claude-opus-4-5"> opus-4-5</label>
-            <label class="model-chip"><input type="checkbox" value="claude-haiku-4-5"> haiku-4-5</label>
-          </div>
-        </div>
-        <div class="target-field" style="flex:0.5">
-          <div class="target-label">Concurrency</div>
-          <input id="concurrency" class="input mono" type="number" min="0" max="10" value="2" style="width:60px">
-        </div>
-      </div>
-
-      <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:20px 0">
-        <button class="btn btn-channel" onclick="runChannel()" id="btnChannel">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-          运行渠道测试
-        </button>
-      </div>
-
-      <div id="channelLoading" class="hidden">
-        <div class="loading"><div class="spinner"></div> 正在运行渠道测试...</div>
-      </div>
-      <div id="channelError" class="hidden">
-        <div class="empty" style="border:1px solid var(--bad);background:var(--bad-bg,#fff5f5)">
-          <div class="ico" style="color:var(--bad)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-          </div>
-          <h4 style="color:var(--bad)">检测失败</h4>
-          <p id="channelErrorMsg" style="color:var(--bad);word-break:break-all;max-width:600px"></p>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═══ VIEW: REPORT (检测报告) ═══ -->
-    <div id="viewReport" class="hidden">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-        <button class="btn btn-quiet btn-sm" onclick="showChannelView('config')">&larr; 返回</button>
-        <div class="eyebrow" style="margin:0" id="reportTitle">检测报告</div>
-        <div style="flex:1"></div>
-        <button class="btn btn-quiet btn-sm" onclick="exportChannel()">导出 JSON</button>
-      </div>
-
-      <div id="channelModelTabs"></div>
-
-      <div id="channelResult">
-        <div class="score-hero">
-          <div class="ring-wrap">
-            <svg class="ring-svg" width="220" height="220" viewBox="0 0 220 220">
-              <circle class="ring-track" cx="110" cy="110" r="96"/>
-              <circle class="ring-fill" id="channelScoreArc" cx="110" cy="110" r="96"
-                      stroke-dasharray="603.2" stroke-dashoffset="603.2"/>
-            </svg>
-            <div class="ring-label">
-              <div class="ring-grade" id="channelGrade">-</div>
-              <div class="ring-pts"><span class="num" id="channelPts">-</span> / 100 pts</div>
-            </div>
-          </div>
-          <div class="score-info">
-            <div id="channelVerdict" class="pill pill-info" style="margin-bottom:10px"><span class="dot"></span><span>-</span></div>
-            <h2 id="channelSummaryTitle">等待检测结果...</h2>
-            <p id="channelSummaryDesc"></p>
-            <div class="score-meta" id="channelScoreMeta"></div>
-          </div>
-        </div>
-
-        <div class="stats-row">
-          <div class="stat"><div class="k">总检查项</div><div class="v" id="chkTotal">-</div></div>
-          <div class="stat"><div class="k">通过</div><div class="v" id="chkPassed" style="color:var(--good)">-</div></div>
-          <div class="stat"><div class="k">失败</div><div class="v" id="chkFailed" style="color:var(--bad)">-</div></div>
-          <div class="stat"><div class="k">耗时</div><div class="v" id="chkElapsed">-</div></div>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-bottom:20px">
-          <div class="card">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-              <h3 style="font-size:13px;font-weight:600">类别得分</h3>
-              <span class="muted" style="font-size:12px">五维探测 · 按权重展示</span>
-            </div>
-            <div id="channelCatBars"></div>
-          </div>
-          <div class="fix-panel">
-            <h4>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-              建议修复 <span class="muted" style="font-weight:400">· 优先级排序</span>
-            </h4>
-            <div class="fix-list" id="channelFixList"></div>
-          </div>
-        </div>
-
-        <!-- Probe-grouped checks with expandable details -->
-        <div class="card flush">
-          <div class="card-head">
-            <h3>探针详情</h3>
-            <div style="display:flex;gap:8px;align-items:center">
-              <div class="seg">
-                <button class="active" onclick="filterChecks('all',this)">全部</button>
-                <button onclick="filterChecks('fail',this)">仅失败</button>
-                <button onclick="filterChecks('pass',this)">仅通过</button>
-              </div>
-            </div>
-          </div>
-          <div id="channelProbes"></div>
-        </div>
-
-        <!-- Raw JSON -->
-        <details style="margin-top:16px">
-          <summary class="btn btn-quiet btn-sm" style="cursor:pointer;margin-bottom:8px">原始 JSON</summary>
-          <pre class="json-out" id="rawChannel" style="max-height:500px;overflow:auto">暂无数据</pre>
-        </details>
-      </div>
-    </div>
-
-    <!-- ═══ VIEW: HISTORY (历史记录) ═══ -->
-    <div id="viewHistory" class="hidden">
-      <div class="page-head">
-        <div class="eyebrow">HISTORY · 检测历史</div>
-        <h1 class="h1">历史<em>检测记录</em></h1>
-        <p class="page-sub">点击任意记录查看完整报告。支持重命名与删除。</p>
-      </div>
-      <div class="card flush">
-        <div id="channelHistoryList" style="padding:14px 18px">
-          <div class="muted">加载中...</div>
-        </div>
-      </div>
-    </div>
+    <div id="crumbBar" class="crumb-bar hidden"></div>
+    <div class="main-inner" id="view"></div>
   </main>
-</section>
+</div>
 
+<!-- ═══════════════════ DRAWER (run config) ═══════════════════ -->
+<div class="drawer-back" id="drawerBack" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-hidden="true">
+  <div class="drawer-head">
+    <h2 id="drawerTitle">配置运行</h2>
+    <div class="spacer"></div>
+    <button class="iconbtn" onclick="closeDrawer()" title="关闭 · Esc">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+  <div class="drawer-foot" id="drawerFoot"></div>
+</aside>
 
-<!-- ═══════════════════ APP: BENCHMARK ═══════════════════ -->
-<section class="app-pane app-body" data-app-pane="bench" hidden>
-  <aside class="side">
-    <div class="side-section">
-      <div class="side-label">Benchmark</div>
-      <a class="side-link active" onclick="showBenchSub('main')">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-14 9z" fill="currentColor" stroke="none"/></svg>
-        本次运行
-      </a>
-      <a class="side-link" onclick="showUploadDialog()">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        导入数据集
-      </a>
-      <a class="side-link" onclick="showBenchSub('history')">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        历史记录
-      </a>
-    </div>
+<!-- ═══════════════════ MODAL (compare / etc) ═══════════════════ -->
+<div id="modalRoot"></div>
 
-    <div class="side-section" id="sideDatasets">
-      <div class="side-label">Datasets</div>
-    </div>
+<!-- ═══════════════════ TOASTS ═══════════════════ -->
+<div class="toast-stack" id="toastStack"></div>
 
-    <div class="side-foot">
-      <div class="avatar">P</div>
-      <div>
-        <div style="color:var(--ink-2);font-weight:500">llm-probe</div>
-        <div id="sideDatasetCount">-</div>
-      </div>
-    </div>
-  </aside>
-
-  <main class="main">
-    <div id="benchSubMain">
-    <div class="page-head">
-      <div class="eyebrow">BENCHMARK · 智商测试</div>
-      <h1 class="h1">这条渠道<em>多聪明</em>?</h1>
-      <p class="page-sub">在多个公开 benchmark 上对该渠道运行评测,聚合得分、分语言/类别、查看每一题的 prompt 与回答。</p>
-    </div>
-
-    <!-- Target config (benchmark) -->
-    <div class="target-bar">
-      <div class="target-field" style="flex:2">
-        <div class="target-label">Target Base URL</div>
-        <input id="benchTargetBase" class="input mono" placeholder="https://api.example.com/v1/messages">
-      </div>
-      <div class="target-field" style="flex:1.5">
-        <div class="target-label">API Key</div>
-        <input id="benchTargetKey" class="input mono" type="password" placeholder="sk-...">
-      </div>
-      <div class="target-field" style="flex:0.8">
-        <div class="target-label">Model</div>
-        <select id="benchModel" class="input mono">
-          <option value="claude-opus-4-6">claude-opus-4-6</option>
-          <option value="claude-opus-4-7">claude-opus-4-7</option>
-          <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- Upload dialog (hidden by default) -->
-    <div id="uploadCard" class="upload-dialog hidden">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h3 style="font-size:14px;font-weight:600">添加数据集</h3>
-        <button class="btn btn-quiet btn-sm" onclick="document.getElementById('uploadCard').classList.add('hidden')">关闭</button>
-      </div>
-      <div class="upload-tabs">
-        <button class="upload-tab active" onclick="showAddTab('tabFetch',this)">从 HuggingFace 拉取</button>
-        <button class="upload-tab" onclick="showAddTab('tabUpload',this)">上传自定义文件</button>
-      </div>
-      <div id="tabFetch">
-        <p class="muted" style="font-size:12px;margin-bottom:12px">暂时仅支持内置的 SWE-Atlas-QnA 数据集。如需添加自定义数据集,请使用「上传自定义文件」。</p>
-        <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
-          <div style="flex:1;min-width:200px">
-            <div class="muted" style="font-size:11px;margin-bottom:4px">选择智商测试集</div>
-            <select id="fetchName" class="input" style="padding:8px 12px">
-              <option value="" disabled selected>暂无可拉取的数据集</option>
-            </select>
-          </div>
-          <div style="width:80px">
-            <div class="muted" style="font-size:11px;margin-bottom:4px">Limit</div>
-            <input id="fetchLimit" type="number" value="0" class="input" placeholder="0=全部">
-          </div>
-          <button class="btn btn-primary" onclick="fetchFromHF()">拉取</button>
-        </div>
-        <div class="muted" style="font-size:12px" id="fetchStatus"></div>
-      </div>
-      <div id="tabUpload" class="hidden">
-        <p class="muted" style="font-size:12px;margin-bottom:12px">支持 CSV (含 task_id, prompt 列) 或 JSON 格式。</p>
-        <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
-          <div style="flex:1;min-width:160px">
-            <div class="muted" style="font-size:11px;margin-bottom:4px">数据集名称</div>
-            <input id="uploadName" class="input" placeholder="my-custom-bench">
-          </div>
-          <div style="flex:1;min-width:160px">
-            <div class="muted" style="font-size:11px;margin-bottom:4px">文件</div>
-            <input id="uploadFile" type="file" accept=".csv,.json" class="input">
-          </div>
-          <button class="btn btn-primary" onclick="uploadDataset()">上传</button>
-        </div>
-        <div class="muted" style="font-size:12px" id="uploadStatus"></div>
-      </div>
-    </div>
-
-    <!-- Dataset switch -->
-    <div style="margin-bottom:20px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div class="eyebrow" style="margin:0">当前数据集</div>
-        <button class="btn btn-quiet btn-sm" onclick="showUploadDialog()">+ 添加数据集</button>
-      </div>
-      <div class="ds-switch" id="datasetSwitch"></div>
-    </div>
-
-    <!-- Dataset info -->
-    <div class="card" style="margin-bottom:20px" id="datasetInfoCard">
-      <div id="datasetInfo">
-        <div class="muted">加载中...</div>
-      </div>
-    </div>
-
-    <!-- Run config -->
-    <div class="card" style="margin-bottom:20px;padding:0;overflow:hidden">
-      <div class="card-head">
-        <h3>运行配置</h3>
-        <span class="meta" id="runPreview">-</span>
-      </div>
-      <div class="runcfg">
-        <div class="runcfg-cell">
-          <div class="k">运行范围</div>
-          <select id="runScope" onchange="toggleRunScope()">
-            <option value="all">全量运行</option>
-            <option value="custom" selected>自定义筛选</option>
-          </select>
-        </div>
-        <div class="runcfg-cell">
-          <div class="k">并发</div>
-          <input id="runConcurrency" type="number" value="5" min="1" max="20">
-        </div>
-        <div class="runcfg-cell">
-          <div class="k">Thinking</div>
-          <select id="runThinking">
-            <option value="off">关闭</option>
-            <option value="on">开启</option>
-          </select>
-        </div>
-        <div class="runcfg-cell">
-          <div class="k">模型覆盖</div>
-          <div style="position:relative">
-            <input id="runModel" list="runModelList" class="input mono" placeholder="留空=使用上方模型" value="">
-            <datalist id="runModelList">
-              <option value="claude-opus-4-6">
-              <option value="claude-opus-4-7">
-              <option value="claude-sonnet-4-6">
-            </datalist>
-          </div>
-        </div>
-      </div>
-      <div id="runFilters" style="padding:14px 18px;border-top:1px solid var(--line-soft);display:flex;gap:12px;align-items:end;flex-wrap:wrap">
-        <div style="flex:1;min-width:120px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">Language</div>
-          <input id="runLang" class="input" placeholder="go / python (留空=全部)">
-        </div>
-        <div style="flex:1;min-width:120px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">Category</div>
-          <input id="runCategory" class="input" placeholder="Security (留空=全部)">
-        </div>
-        <div style="width:80px">
-          <div class="muted" style="font-size:11px;margin-bottom:4px">Limit</div>
-          <input id="runLimit" type="number" value="0" class="input" placeholder="0=全部">
-        </div>
-      </div>
-      <div style="padding:14px 18px;border-top:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center;background:var(--bg-2)">
-        <div class="muted" style="font-size:12px" id="intelligencePreview"></div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-danger btn-sm hidden" onclick="stopIntelligence()" id="btnIntelligenceStop">停止</button>
-          <button class="btn btn-primary" onclick="runIntelligenceStream()" id="btnIntelligence">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-            开始运行
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Progress -->
-    <div class="bench-hero hidden" id="intelligenceProgressCard">
-      <div class="progress-card">
-        <div class="top">
-          <div>
-            <div class="label">运行中 · streaming</div>
-            <div class="frac"><span id="progressCompleted">0</span><small id="progressTotal">/0</small></div>
-          </div>
-          <div style="text-align:right">
-            <div class="label">已用时</div>
-            <div class="serif tnum" style="font-size:24px;letter-spacing:-0.01em" id="intelligenceElapsed">0s</div>
-          </div>
-        </div>
-        <div class="progress-bar">
-          <div class="fill" id="intelligenceProgressBar" style="width:0"></div>
-          <div class="shimmer" id="progressShimmer"></div>
-        </div>
-        <div class="progress-stats">
-          <div class="item"><div class="k">已完成</div><div class="v" id="progressDone">0</div></div>
-          <div class="item"><div class="k">错误</div><div class="v" id="progressErrors">0</div></div>
-          <div class="item"><div class="k">avg / task</div><div class="v" id="progressAvg">-</div></div>
-          <div class="item"><div class="k">并发</div><div class="v" id="progressConcurrency">5</div></div>
-        </div>
-      </div>
-
-      <div class="dist-card">
-        <h3>运行统计 <span class="legend" id="distLegend">-</span></h3>
-        <div id="intelligenceResultStats" style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px solid var(--line-soft)">
-        </div>
-      </div>
-    </div>
-
-    <!-- Results -->
-    <div class="card flush hidden" id="intelligenceResultCard">
-      <div class="card-head">
-        <h3>单题结果 · 流式</h3>
-        <div style="display:flex;gap:8px;align-items:center">
-          <span class="muted" style="font-size:12px" id="intelligenceResultMeta"></span>
-          <button class="btn btn-quiet btn-sm" onclick="exportIntelligenceResult()">导出 JSON</button>
-        </div>
-      </div>
-      <div style="padding:14px 18px;max-height:600px;overflow-y:auto" id="intelligenceResultList"></div>
-    </div>
-
-    <!-- Raw data -->
-    <pre class="json-out hidden" id="rawIntelligence" style="margin-top:16px">暂无数据</pre>
-    </div><!-- /benchSubMain -->
-
-    <!-- ═══ Benchmark 历史记录 ═══ -->
-    <div id="benchSubHistory" class="hidden">
-      <div class="card flush">
-        <div class="card-head">
-          <h3>Benchmark 历史</h3>
-          <span class="muted" style="font-size:12px">点击查看详情 · 支持删除</span>
-        </div>
-        <div id="benchHistoryList" style="padding:14px 18px">
-          <div class="muted">加载中...</div>
-        </div>
-      </div>
-    </div>
-  </main>
-</section>
-
-
-<!-- ═══════════════════ APP: SETTINGS ═══════════════════ -->
-<section class="app-pane app-body" data-app-pane="settings" hidden>
-  <aside class="side">
-    <div class="side-section">
-      <div class="side-label">Settings</div>
-      <a class="side-link active">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/><path d="M3 12h12M3 6h6M3 18h18"/></svg>
-        连接与目标
-      </a>
-    </div>
-    <div class="side-foot">
-      <div class="avatar">P</div>
-      <div>
-        <div style="color:var(--ink-2);font-weight:500">llm-probe</div>
-        <div>本地配置 · 不上传</div>
-      </div>
-    </div>
-  </aside>
-
-  <main class="main" style="max-width:880px">
-    <div class="page-head">
-      <div class="eyebrow">SETTINGS · 高级设置</div>
-      <h1 class="h1"><em>Admin</em> 与高级选项</h1>
-      <p class="page-sub">Target URL、API Key、Model 在各工作区顶部直接填写。此页面仅配置 Admin Token 等高级选项。</p>
-    </div>
-
-    <div class="card">
-      <div class="set-row">
-        <div class="k">
-          <h4>Admin Token</h4>
-          <p>仅在调用 /api/audit /api/intelligence 等受限接口时需要。留空表示不启用鉴权。</p>
-        </div>
-        <div>
-          <input id="adminToken" class="input mono" type="password" placeholder="optional">
-        </div>
-      </div>
-    </div>
-
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
-      <button class="btn btn-primary" onclick="saveSettings()">保存</button>
-    </div>
-  </main>
-</section>
-
-<script src="/app.js"></script>
+<script src="util.js"></script>
+<script src="channel.js"></script>
+<script src="bench.js"></script>
+<script src="history.js"></script>
+<script src="monitor.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

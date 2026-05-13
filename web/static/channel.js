@@ -1,0 +1,911 @@
+/* ─── channel.js · Channel test pages ─────────────────────────────────── */
+/*
+ * SSE protocol expected at POST /api/channel/run/stream:
+ *
+ *   data: {"type":"start","run_id":"abc","models":["m1",...],"total_probes":N}
+ *   data: {"type":"probe_start","model":"m1","probe_id":"id","label":"..."}
+ *   data: {"type":"probe_done","model":"m1","probe_id":"id","probe":{...probeResult}}
+ *   data: {"type":"model_done","model":"m1","report":{...full single-model report}}
+ *   data: {"type":"done","reports":[...]}      // final list
+ *   data: {"type":"error","error":"..."}
+ *
+ * Frontend falls back gracefully to the sync /api/channel/run endpoint
+ * if /stream returns 404 — in that case it shows an indeterminate progress
+ * state until the sync response lands.
+ */
+
+/* ─── New-run config view ─── */
+function renderChannelConfig() {
+  setCrumb([{ label: 'Channel', href: '#/channel' }, { cur: '新建检测' }],
+    el('div', { class: 'crumb-actions' },
+      btn('查看历史', { onClick: () => location.hash = '#/channel/history', icon: 'history', size: 'sm', ghost: true })
+    )
+  );
+
+  const v = $('#view');
+  v.innerHTML = '';
+  v.appendChild(buildChannelConfigPanel());
+}
+
+function buildChannelConfigPanel() {
+  const C = State.channel;
+  const wrap = el('div');
+
+  // info strip
+  wrap.appendChild(el('div', { class: 'panel', style: { marginBottom: '12px' } },
+    el('div', { class: 'panel-head' },
+      el('h3', null, '新建渠道检测'),
+      el('span', { class: 'meta' }, '通过指纹 / 结构 / 签名 / 行为 / 多模态 五维探测核验渠道是否官方'),
+    ),
+    el('div', { class: 'panel-body' },
+      buildField('TARGET BASE URL', el('input', {
+        class: 'mono', id: 'cfgTargetBase', placeholder: 'https://api.example.com', value: C.targetBase,
+        oninput: e => { C.targetBase = e.target.value.trim(); updateConn(); },
+        style: { width: '100%', background: 'transparent', border: 'none', padding: '0' }
+      })),
+      buildField('API KEY', el('input', {
+        type: 'password', class: 'mono', id: 'cfgTargetKey', placeholder: 'sk-...', value: C.targetKey,
+        oninput: e => { C.targetKey = e.target.value; },
+        style: { width: '100%', background: 'transparent', border: 'none', padding: '0' }
+      })),
+      buildField('CHANNEL NAME (optional)', el('input', {
+        id: 'cfgChannelName', placeholder: '(auto)', value: C.channelName,
+        oninput: e => { C.channelName = e.target.value.trim(); },
+        style: { width: '100%', background: 'transparent', border: 'none', padding: '0' }
+      })),
+      buildField('MODELS', buildModelChips()),
+      buildField('CONCURRENCY', el('input', {
+        type: 'number', min: 0, max: 10, value: C.concurrency, class: 'mono',
+        style: { width: '70px', background: 'transparent', border: 'none', padding: '0' },
+        oninput: e => { C.concurrency = parseInt(e.target.value) || 0; },
+      })),
+    ),
+    el('div', {
+      class: 'panel-head',
+      style: { borderTop: '1px solid var(--line)', borderBottom: 'none', justifyContent: 'flex-end' }
+    },
+      btn('运行渠道检测', {
+        primary: true, icon: 'play',
+        onClick: () => kickoffChannelRun(),
+      })
+    )
+  ));
+
+  return wrap;
+}
+
+function buildField(label, input) {
+  return el('div', { class: 'field', style: { borderBottom: '1px solid var(--line-soft)' } },
+    el('div', { class: 'field-label' }, label),
+    input
+  );
+}
+
+function buildModelChips() {
+  const ALL = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7', 'claude-opus-4-5', 'claude-haiku-4-5'];
+  const set = new Set(State.channel.models);
+  const wrap = el('div', { class: 'chip-set' });
+  ALL.forEach(m => {
+    const lbl = el('label', { class: 'chip' });
+    const cb = el('input', { type: 'checkbox', value: m });
+    if (set.has(m)) cb.checked = true;
+    cb.addEventListener('change', () => {
+      if (cb.checked) set.add(m); else set.delete(m);
+      State.channel.models = Array.from(set);
+    });
+    lbl.appendChild(cb);
+    lbl.appendChild(el('span', { class: 'led' }));
+    lbl.appendChild(document.createTextNode(m));
+    wrap.appendChild(lbl);
+  });
+  return wrap;
+}
+
+/* ─── Kick off a run ─── */
+async function kickoffChannelRun() {
+  const C = State.channel;
+  if (!C.targetBase) { toast('请填写 Target Base URL', 'bad'); return; }
+  if (!C.targetKey)  { toast('请填写 API Key', 'bad'); return; }
+  if (!C.models.length) { toast('请至少勾选一个 Model', 'bad'); return; }
+
+  const tempId = 'live_' + Date.now().toString(36);
+  const payload = {
+    target_base: C.targetBase,
+    target_key:  C.targetKey,
+    model:       C.models[0],
+    models:      C.models,
+    channel_name: C.channelName,
+    concurrency: C.concurrency,
+  };
+
+  State.liveRuns[tempId] = {
+    kind: 'channel',
+    state: 'running',
+    payload,
+    models: C.models.slice(),
+    channelName: C.channelName,
+    targetBase: C.targetBase,
+    target: C.targetBase,
+    startedAt: Date.now(),
+    perModel: {},               // model → { reports, probes: {probeId → probeResult}, status }
+    aborter: null,
+    progressTotal: 0,
+    progressDone: 0,
+    error: null,
+    finalReports: null,
+    realRunId: null,
+  };
+  C.models.forEach(m => {
+    State.liveRuns[tempId].perModel[m] = { status: 'pending', probes: {}, probeOrder: [], report: null };
+  });
+
+  // navigate immediately
+  location.hash = '#/channel/run/' + tempId;
+  // start work
+  runChannelStream(tempId, payload).catch(err => {
+    const r = State.liveRuns[tempId]; if (!r) return;
+    r.state = 'error'; r.error = err.message || String(err);
+    renderRunPage(tempId);
+  });
+}
+
+async function runChannelStream(runId, payload) {
+  const run = State.liveRuns[runId];
+  const ac = new AbortController();
+  run.aborter = ac;
+
+  // try SSE first
+  let resp;
+  try {
+    resp = await fetch('/api/channel/run/stream', {
+      method: 'POST', headers: headers(),
+      body: JSON.stringify(payload), signal: ac.signal,
+    });
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+    resp = null;
+  }
+
+  if (resp && resp.ok && (resp.headers.get('content-type') || '').includes('text/event-stream')) {
+    await consumeChannelSSE(runId, resp);
+    return;
+  }
+  if (resp && resp.status === 404) {
+    // fall back to sync
+    return runChannelSync(runId, payload, ac);
+  }
+  // some other response — try sync as last resort
+  return runChannelSync(runId, payload, ac);
+}
+
+async function consumeChannelSSE(runId, resp) {
+  const run = State.liveRuns[runId];
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      try { handleChannelSSE(runId, JSON.parse(line.slice(6))); } catch {}
+    }
+  }
+  if (buf.startsWith('data: ')) {
+    try { handleChannelSSE(runId, JSON.parse(buf.slice(6))); } catch {}
+  }
+}
+
+function handleChannelSSE(runId, ev) {
+  const run = State.liveRuns[runId];
+  if (!run) return;
+  switch (ev.type) {
+    case 'start':
+      if (ev.models) run.models = ev.models;
+      run.progressTotal = ev.total_probes || 0;
+      if (ev.run_id && ev.run_id !== runId) {
+        // backend reassigned id — keep tempId as alias
+        run.realRunId = ev.run_id;
+      }
+      maybeRerender(runId);
+      break;
+    case 'probe_start': {
+      const pm = run.perModel[ev.model] ||= { status: 'pending', probes: {}, probeOrder: [], report: null };
+      pm.status = 'running';
+      const pid = ev.probe_id || ev.label;
+      if (!pm.probes[pid]) {
+        pm.probes[pid] = { state: 'running', probe_id: pid, label: ev.label || pid, checks: [], latency_ms: null };
+        pm.probeOrder.push(pid);
+      } else { pm.probes[pid].state = 'running'; }
+      maybeRerender(runId);
+      break;
+    }
+    case 'probe_done': {
+      const pm = run.perModel[ev.model];
+      if (!pm) break;
+      const pid = ev.probe && ev.probe.probe_id ? ev.probe.probe_id : ev.probe_id;
+      const prev = pm.probes[pid] || { probe_id: pid, label: pid };
+      pm.probes[pid] = Object.assign(prev, ev.probe, { state: 'done' });
+      if (!pm.probeOrder.includes(pid)) pm.probeOrder.push(pid);
+      run.progressDone++;
+      maybeRerender(runId);
+      break;
+    }
+    case 'model_done': {
+      const pm = run.perModel[ev.model] ||= { status: 'pending', probes: {}, probeOrder: [], report: null };
+      pm.report = ev.report;
+      pm.status = 'done';
+      maybeRerender(runId);
+      break;
+    }
+    case 'done':
+      run.state = 'done';
+      run.finalReports = ev.reports || [];
+      run.finishedAt = Date.now();
+      (ev.reports || []).forEach(rep => {
+        const pm = run.perModel[rep.model] ||= { status: 'done', probes: {}, probeOrder: [], report: rep };
+        pm.report = rep;
+        pm.status = 'done';
+      });
+      maybeRerender(runId);
+      break;
+    case 'error':
+      run.state = 'error'; run.error = ev.error || 'unknown error';
+      maybeRerender(runId);
+      break;
+  }
+}
+
+async function runChannelSync(runId, payload, ac) {
+  const run = State.liveRuns[runId];
+  let resp, data;
+  try {
+    resp = await fetch('/api/channel/run', {
+      method: 'POST', headers: headers(),
+      body: JSON.stringify(payload), signal: ac.signal,
+    });
+    const text = await resp.text();
+    try { data = JSON.parse(text); } catch { data = { error: text }; }
+    if (!resp.ok) throw new Error((data && data.error) || 'request failed');
+  } catch (e) {
+    if (e.name === 'AbortError') { run.state = 'cancelled'; maybeRerender(runId); return; }
+    throw e;
+  }
+  // shape: single report or {reports:[...]}
+  const reports = data.reports ? data.reports : [data];
+  run.state = 'done';
+  run.finalReports = reports;
+  run.finishedAt = Date.now();
+  reports.forEach(rep => {
+    const pm = run.perModel[rep.model] ||= { status: 'done', probes: {}, probeOrder: [], report: rep };
+    pm.report = rep;
+    pm.status = 'done';
+    // synthesise probes from probe_results
+    (rep.probe_results || []).forEach(p => {
+      pm.probes[p.probe_id] = Object.assign({}, p, { state: 'done' });
+      if (!pm.probeOrder.includes(p.probe_id)) pm.probeOrder.push(p.probe_id);
+    });
+  });
+  maybeRerender(runId);
+}
+
+function cancelChannelRun(runId) {
+  const run = State.liveRuns[runId];
+  if (!run) return;
+  if (run.aborter) run.aborter.abort();
+  run.state = 'cancelled';
+  maybeRerender(runId);
+  toast('已取消', 'good');
+}
+
+/* ─── Re-render guard — only re-render if route still on this run ─── */
+let _renderTimer = null;
+function maybeRerender(runId) {
+  const route = parseRoute(location.hash);
+  if (route.app !== 'channel' || route.kind !== 'run' || route.id !== runId) return;
+  // batch
+  if (_renderTimer) return;
+  _renderTimer = requestAnimationFrame(() => {
+    _renderTimer = null;
+    renderRunPage(runId);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Run page — shared by RUNNING / DONE / HISTORY-DETAIL
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+async function renderChannelRunRoute(runId, model, anchor) {
+  if (State.liveRuns[runId]) { renderRunPage(runId, model, anchor); return; }
+  // fetch from history
+  const v = $('#view');
+  v.innerHTML = '<div class="empty"><div class="glyph">/</div>加载历史中...</div>';
+  try {
+    const data = await api('/api/channel/history/' + encodeURIComponent(runId));
+    // wrap into liveRuns shape (state=done, single-model history)
+    const reports = Array.isArray(data) ? data : (data.reports ? data.reports : [data]);
+    const run = {
+      kind: 'channel', state: 'done', historical: true,
+      models: reports.map(r => r.model),
+      channelName: reports[0] ? reports[0].channel_name : '',
+      target: reports[0] ? reports[0].target : '',
+      startedAt: reports[0] && reports[0].timestamp ? new Date(reports[0].timestamp).getTime() : null,
+      finishedAt: null,
+      perModel: {},
+      finalReports: reports,
+      progressTotal: 0, progressDone: 0,
+      payload: null,
+    };
+    reports.forEach(rep => {
+      const probes = {}; const order = [];
+      (rep.probe_results || []).forEach(p => { probes[p.probe_id] = Object.assign({}, p, { state: 'done' }); order.push(p.probe_id); });
+      run.perModel[rep.model] = { status: 'done', probes, probeOrder: order, report: rep };
+    });
+    State.liveRuns[runId] = run;
+    renderRunPage(runId, model, anchor);
+  } catch (e) {
+    v.innerHTML = '';
+    v.appendChild(el('div', { class: 'empty' },
+      el('div', { class: 'glyph' }, '×'),
+      '未找到此次运行: ' + esc(runId),
+      el('div', { style: { marginTop: '12px' } },
+        btn('返回历史', { onClick: () => location.hash = '#/channel/history', icon: 'history', size: 'sm' })
+      )
+    ));
+  }
+}
+
+function renderRunPage(runId, focusedModel, anchor) {
+  const run = State.liveRuns[runId];
+  if (!run) return;
+  const models = Array.from(new Set(run.models || Object.keys(run.perModel)));
+  if (!focusedModel || !models.includes(focusedModel)) focusedModel = models[0];
+
+  // crumb
+  const crumbs = [{ label: 'Channel', href: '#/channel' }];
+  if (run.historical) crumbs.push({ label: '历史', href: '#/channel/history' });
+  crumbs.push({ cur: run.channelName || (run.target || '').replace(/^https?:\/\//, '').split('/')[0] || 'run' });
+  if (models.length > 1) crumbs.push({ cur: focusedModel, mono: true });
+
+  const actions = el('div', { class: 'crumb-actions' });
+  if (run.state === 'running') {
+    actions.appendChild(btn('取消', { icon: 'stop', size: 'sm', danger: true, onClick: () => cancelChannelRun(runId) }));
+  } else {
+    if (run.payload) actions.appendChild(btn('重新运行', { icon: 'refresh', size: 'sm', ghost: true, onClick: () => rerunChannel(runId) }));
+    actions.appendChild(btn('复制失败为 MD', { icon: 'copy', size: 'sm', ghost: true, onClick: () => copyFailuresMd(runId, focusedModel) }));
+    actions.appendChild(btn('导出 JSON', { icon: 'download', size: 'sm', ghost: true, onClick: () => exportRunJson(runId) }));
+  }
+  setCrumb(crumbs, actions);
+
+  const v = $('#view');
+  v.innerHTML = '';
+
+  // ─── Status bar ───
+  v.appendChild(renderRunHeader(run, runId));
+
+  // ─── Progress strip (only while running) ───
+  if (run.state === 'running') v.appendChild(renderProgressStrip(run));
+
+  // ─── Multi-model overview grid ───
+  if (models.length > 1) v.appendChild(renderModelGrid(run, models, focusedModel, runId));
+
+  // ─── Focused model detail ───
+  v.appendChild(renderModelDetail(run, focusedModel, runId, anchor));
+}
+
+function renderRunHeader(run, runId) {
+  const wrap = el('div', { class: 'statbar' });
+  const cells = [];
+
+  const statusBadge = (() => {
+    if (run.state === 'running') return el('span', { class: 'pill pill-running' }, el('span', { class: 'led' }), '运行中');
+    if (run.state === 'error')   return el('span', { class: 'pill pill-bad' }, el('span', { class: 'led' }), '失败');
+    if (run.state === 'cancelled') return el('span', { class: 'pill pill-warn' }, el('span', { class: 'led' }), '已取消');
+    return el('span', { class: 'pill pill-good' }, el('span', { class: 'led' }), '完成');
+  })();
+
+  cells.push(['STATUS', statusBadge]);
+  cells.push(['RUN ID', el('span', { class: 'mono' }, runId.slice(0, 16) + (runId.length > 16 ? '…' : ''))]);
+  cells.push(['CHANNEL', run.channelName || '—']);
+  cells.push(['TARGET', el('span', { class: 'mono', style: { fontSize: '11px' } }, (run.target || '').replace(/^https?:\/\//, '') || '—')]);
+  cells.push(['MODELS', el('span', { class: 'mono' }, (run.models || []).length)]);
+  if (run.startedAt) cells.push(['STARTED', el('span', { class: 'mono', style: { fontSize: '11px' } }, fmtTimeAgo(new Date(run.startedAt).toISOString()))]);
+  if (run.state !== 'running') {
+    const total = run.finalReports ? (run.finalReports[0] && run.finalReports[0].elapsed_ms) || 0 : 0;
+    cells.push(['ELAPSED', el('span', { class: 'mono' }, total ? fmtMs(total) : '—')]);
+  } else {
+    const now = Date.now();
+    cells.push(['ELAPSED', el('span', { class: 'mono', id: 'liveElapsed' }, fmtMs(now - run.startedAt))]);
+    // tick
+    if (!run._tick) {
+      run._tick = setInterval(() => {
+        if (run.state !== 'running') { clearInterval(run._tick); run._tick = null; return; }
+        const cur = document.getElementById('liveElapsed');
+        if (cur) cur.textContent = fmtMs(Date.now() - run.startedAt);
+      }, 1000);
+    }
+  }
+
+  cells.forEach(([k, v]) => {
+    wrap.appendChild(el('div', { class: 'cell' },
+      el('div', { class: 'k' }, k),
+      el('div', { class: 'v' }, v),
+    ));
+  });
+
+  if (run.state === 'error' && run.error) {
+    const err = el('div', { class: 'panel', style: { marginBottom: '12px', borderColor: 'var(--bad-line)' } },
+      el('div', { class: 'panel-head', style: { background: 'var(--bad-soft)', borderColor: 'var(--bad-line)' } },
+        el('h3', { style: { color: 'var(--bad-ink)' } }, '运行失败'),
+      ),
+      el('div', { class: 'panel-body', style: { fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--bad-ink)', wordBreak: 'break-all' } }, run.error),
+    );
+    const frag = document.createDocumentFragment();
+    frag.appendChild(wrap);
+    frag.appendChild(err);
+    return frag;
+  }
+
+  return wrap;
+}
+
+function renderProgressStrip(run) {
+  const pct = run.progressTotal > 0 ? Math.round(run.progressDone / run.progressTotal * 100) : Math.min(95, (Date.now() - run.startedAt) / 600);
+  return el('div', { class: 'panel', style: { marginBottom: '12px' } },
+    el('div', { class: 'panel-head' },
+      el('h3', null, '运行进度'),
+      el('span', { class: 'meta' },
+        run.progressTotal > 0
+          ? `${run.progressDone} / ${run.progressTotal} probes`
+          : '等待后端事件…(SSE 未启用时回退为不定进度)'),
+      el('div', { class: 'spacer' }),
+      el('span', { class: 'mono', style: { color: 'var(--ink-3)', fontSize: '11px' } }, Math.round(pct) + '%'),
+    ),
+    el('div', { class: 'panel-body', style: { padding: '12px 14px' } },
+      el('div', { class: 'progress' },
+        el('div', { class: 'progress-fill', style: { width: pct + '%' } })
+      ),
+    ),
+  );
+}
+
+function renderModelGrid(run, models, focusedModel, runId) {
+  const wrap = el('div', { class: 'panel', style: { marginBottom: '12px' } });
+  wrap.appendChild(el('div', { class: 'panel-head' },
+    el('h3', null, '模型对比'),
+    el('span', { class: 'meta' }, models.length + ' 个模型 · 点击进入详细 probe'),
+  ));
+  const grid = el('div', { class: 'panel-body', style: { padding: '12px' } });
+  const inner = el('div', { class: 'model-grid', style: { margin: '0' } });
+  models.forEach(m => {
+    const pm = run.perModel[m] || { status: 'pending', probes: {}, probeOrder: [] };
+    inner.appendChild(renderModelCard(m, pm, run, m === focusedModel, runId));
+  });
+  grid.appendChild(inner);
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+function renderModelCard(model, pm, run, isActive, runId) {
+  const card = el('div', { class: 'model-card' + (isActive ? ' active' : ''),
+    onclick: () => location.hash = '#/channel/run/' + runId + '/m/' + encodeURIComponent(model),
+  });
+
+  if (pm.status !== 'done') {
+    card.appendChild(el('div', { class: 'running-indicator' }, pm.status === 'running' ? '运行中' : 'pending'));
+  }
+  const rep = pm.report;
+  const sum = rep ? reportSummary(rep) : null;
+  const grade = sum ? sum.grade : '·';
+  const gc = sum && sum.gradeColor ? gradeColor(sum.gradeColor) : 'var(--ink-4)';
+
+  card.appendChild(el('div', { class: 'top' },
+    el('span', { class: 'led-dot ' + (pm.status === 'running' ? 'run' : pm.status === 'done' ? (sum && sum.failed === 0 ? 'pass' : 'warn') : 'pending') }),
+    el('div', { class: 'name' }, model),
+    el('div', { class: 'grade', style: { color: gc } }, grade),
+  ));
+
+  if (sum) {
+    card.appendChild(el('div', { class: 'score-line' },
+      el('span', { class: 'num', style: { color: gc } }, sum.score != null ? Math.round(sum.score) : '–'),
+      el('span', { class: 'denom' }, '/ 100'),
+      el('span', { class: 'spacer' }),
+      el('span', { class: 'pill ' + (VERDICT_PILL[sum.verdictColor] || 'pill-info'), style: { fontSize: '10px' } },
+        el('span', { class: 'led' }), sum.verdictLabel
+      ),
+    ));
+    const cats = el('div', { class: 'cats' });
+    sum.categories.forEach(c => {
+      const cat = (c.key || '').toLowerCase();
+      const color = CAT_COLOR[cat] || 'var(--ink-3)';
+      cats.appendChild(el('div', { class: 'cat-bar' },
+        el('span', { class: 'label' }, (c.label || cat).slice(0, 8)),
+        el('div', { class: 'track' },
+          el('div', { class: 'fill', style: { width: c.percentage + '%', background: color } })),
+        el('span', { class: 'pct' }, Math.round(c.percentage) + '%'),
+      ));
+    });
+    card.appendChild(cats);
+  } else {
+    // skeleton
+    card.appendChild(el('div', { class: 'score-line' },
+      el('span', { class: 'num skel', style: { width: '60px', height: '28px', display: 'inline-block' } }, ''),
+    ));
+    const cats = el('div', { class: 'cats' });
+    for (let i = 0; i < 5; i++) cats.appendChild(el('div', { class: 'cat-bar' },
+      el('span', { class: 'label skel', style: { height: '8px' } }, ' '),
+      el('div', { class: 'track' }, el('div', { class: 'fill skel', style: { width: '40%', background: 'var(--ink-5)' } })),
+      el('span', { class: 'pct skel', style: { height: '8px' } }, ' '),
+    ));
+    card.appendChild(cats);
+  }
+
+  return card;
+}
+
+function renderModelDetail(run, model, runId, anchor) {
+  const wrap = document.createDocumentFragment();
+  const pm = run.perModel[model] || { status: 'pending', probes: {}, probeOrder: [] };
+  const rep = pm.report;
+  const sum = rep ? reportSummary(rep) : null;
+
+  // ─── verdict-hero (first thing user sees) ───
+  if (sum) {
+    wrap.appendChild(renderVerdictHero(sum, model, runId));
+  } else if (run.state === 'running') {
+    // skeleton hero
+    const sk = el('div', { class: 'verdict-hero' },
+      el('div', { class: 'verdict-side' },
+        el('div', { class: 'label' }, model + ' · running'),
+        el('div', { class: 'head' },
+          el('span', { class: 'grade skel', style: { width: '60px', height: '38px', display: 'inline-block' } }, ' '),
+          el('span', { class: 'score skel', style: { width: '60px', height: '12px', display: 'inline-block' } }, ' '),
+        ),
+        el('div', { class: 'title' }, '正在探测…'),
+      ),
+      el('div', { class: 'fail-side' },
+        el('div', { class: 'head' }, el('span', null, '失败检查项'), el('span', { class: 'spacer' }), el('span', { class: 'count' }, '–')),
+        el('div', { class: 'fail-list' }, el('div', { class: 'muted', style: { fontSize: '12px', padding: '8px 4px' } }, '等待 probe 结果…')),
+      ),
+    );
+    wrap.appendChild(sk);
+  }
+
+  // ─── Score + categories (compact, below the verdict) ───
+  if (sum) {
+    wrap.appendChild(renderScoreCategories(sum, rep));
+  }
+
+  // ─── Probe details ───
+  wrap.appendChild(renderProbeListPanel(pm, run, runId, model, anchor));
+
+  // ─── Raw JSON ───
+  if (rep) {
+    const raw = el('details', { style: { marginTop: '14px' } },
+      el('summary', { class: 'btn btn-quiet btn-sm', style: { display: 'inline-flex', cursor: 'pointer' } }, '原始 JSON'),
+      el('pre', { class: 'json-out', style: { marginTop: '8px' } }, JSON.stringify(rep, null, 2)),
+    );
+    wrap.appendChild(raw);
+  }
+
+  return wrap;
+}
+
+function renderVerdictHero(sum, model, runId) {
+  const gc = gradeColor(sum.gradeColor);
+  const titleMain = sum.score >= 80 ? '大概率<em>官方直连</em>'
+                  : sum.score >= 50 ? '存在<em>明显偏差</em>'
+                                    : '疑似<em>非官方渠道</em>';
+  const titleSub = sum.failed > 0 ? `,有 ${sum.failed} 项偏差` : '';
+  const title = el('div', { class: 'title' });
+  title.innerHTML = titleMain + esc(titleSub);
+
+  // failure list
+  const failBody = el('div', { class: 'fail-list' });
+  if (sum.failures.length === 0) {
+    failBody.appendChild(el('div', { class: 'empty' }, '✓ 全部 ' + sum.total + ' 项检查通过'));
+  } else {
+    sum.failures.slice(0, 6).forEach(c => {
+      const cat = catOf(c.name);
+      const node = el('div', { class: 'fail-item', onclick: () => {
+        location.hash = '#/channel/run/' + runId + '/m/' + encodeURIComponent(model) + '/check/' + encodeURIComponent(c.name);
+      }});
+      node.appendChild(el('span', { class: 'led-dot fail' }));
+      const body = el('div', { class: 'body', style: { minWidth: '0' } });
+      const name = el('div', { class: 'name' });
+      if (c.label) name.appendChild(el('span', { class: 'label' }, c.label));
+      name.appendChild(el('span', null, c.name));
+      body.appendChild(name);
+      body.appendChild(el('div', { class: 'detail' }, c.detail || ''));
+      node.appendChild(body);
+      node.appendChild(el('span', { class: 'cat-tag', style: { color: CAT_COLOR[cat] } }, cat));
+      failBody.appendChild(node);
+    });
+    if (sum.failures.length > 6) {
+      failBody.appendChild(el('div', { class: 'muted', style: { fontSize: '11px', textAlign: 'center', padding: '6px' } },
+        '还有 ' + (sum.failures.length - 6) + ' 项 · 见下方完整列表'));
+    }
+  }
+
+  return el('div', { class: 'verdict-hero' },
+    el('div', { class: 'verdict-side' },
+      el('div', { class: 'label' }, 'VERDICT · ' + model),
+      el('div', { class: 'head' },
+        el('span', { class: 'grade', style: { color: gc } }, sum.grade),
+        el('span', { class: 'score' }, (sum.score != null ? Math.round(sum.score) : '–') + ' / 100 pts'),
+      ),
+      el('span', { class: 'pill ' + (VERDICT_PILL[sum.verdictColor] || 'pill-info'), style: { alignSelf: 'flex-start' } },
+        el('span', { class: 'led' }), sum.verdictLabel),
+      title,
+      el('div', { class: 'desc' }, sum.passed + ' / ' + sum.total + ' 通过 · ' + (sum.elapsedMs ? fmtMs(sum.elapsedMs) : '—')),
+    ),
+    el('div', { class: 'fail-side' },
+      el('div', { class: 'head' },
+        el('span', null, '失败检查项'),
+        el('span', { class: 'spacer' }),
+        el('span', { class: 'count' }, sum.failed),
+      ),
+      failBody,
+    ),
+  );
+}
+
+function renderScoreCategories(sum, rep) {
+  const panel = el('div', { class: 'panel', style: { marginBottom: '12px' } });
+  panel.appendChild(el('div', { class: 'panel-head' },
+    el('h3', null, '类别得分'),
+    el('span', { class: 'meta' }, '五维探测 · 按权重展示'),
+  ));
+  const body = el('div', { class: 'panel-body' });
+  const strip = el('div', { class: 'cat-strip' });
+  sum.categories.forEach(c => {
+    const cat = (c.key || '').toLowerCase();
+    const color = CAT_COLOR[cat] || 'var(--ink-3)';
+    const pctCol = c.percentage >= 80 ? 'var(--good)' : c.percentage >= 50 ? 'var(--warn)' : 'var(--bad)';
+    strip.appendChild(el('div', { class: 'cat' },
+      el('span', { class: 'swatch', style: { background: color } }),
+      el('span', { class: 'name' }, c.label || cat),
+      el('div', { class: 'track' },
+        el('div', { class: 'fill', style: { width: c.percentage + '%', background: color } })),
+      el('span', { class: 'frac' }, (c.passed || 0) + '/' + (c.total || 0)),
+      el('span', { class: 'pct', style: { color: pctCol } }, Math.round(c.percentage) + '%'),
+    ));
+  });
+  body.appendChild(strip);
+  panel.appendChild(body);
+  return panel;
+}
+
+let _checkFilter = 'all';
+function renderProbeListPanel(pm, run, runId, model, anchor) {
+  const panel = el('div', { class: 'panel' });
+  const seg = el('div', { class: 'seg' });
+  ['all', 'fail', 'pass'].forEach(k => {
+    const b = el('button', { class: _checkFilter === k ? 'active' : '',
+      onclick: () => { _checkFilter = k; renderRunPage(runId, model, anchor); } },
+      ({ all: '全部', fail: '仅失败', pass: '仅通过' })[k]);
+    seg.appendChild(b);
+  });
+
+  panel.appendChild(el('div', { class: 'panel-head' },
+    el('h3', null, '探针 / probes'),
+    el('span', { class: 'meta' }, (pm.probeOrder || []).length + ' probes · ' + (pm.report ? '完成' : pm.status)),
+    el('div', { class: 'spacer' }),
+    seg,
+  ));
+
+  const body = el('div', { class: 'panel-body', style: { padding: '0' } });
+  const list = el('div', { class: 'probes' });
+
+  const order = pm.probeOrder.slice();
+  if (order.length === 0) {
+    list.appendChild(el('div', { class: 'empty' }, run.state === 'running' ? '等待 probe 结果…' : '无 probe 数据'));
+  } else {
+    order.forEach(pid => list.appendChild(renderProbeRow(pm.probes[pid], anchor)));
+  }
+  body.appendChild(list);
+  panel.appendChild(body);
+
+  // scroll to anchor
+  if (anchor) {
+    setTimeout(() => {
+      const target = document.querySelector('[data-check="' + CSS.escape(anchor) + '"]');
+      if (target) {
+        // open its parent
+        let parent = target.closest('.probe-row');
+        if (parent) parent.classList.add('open');
+        target.classList.add('highlight');
+        target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        setTimeout(() => target.classList.remove('highlight'), 2200);
+      }
+    }, 120);
+  }
+
+  return panel;
+}
+
+function renderProbeRow(probe, anchor) {
+  const checks = probe.checks || [];
+  const passed = checks.filter(c => c.pass).length;
+  const total = checks.length;
+  const isRunning = probe.state === 'running';
+  const allPass = total > 0 && passed === total;
+  const hasFail = passed < total;
+
+  const dot = el('span', { class: 'led-dot ' + (isRunning ? 'run' : total === 0 ? 'pending' : allPass ? 'pass' : 'fail') });
+  const head = el('div', { class: 'probe-head' },
+    dot,
+    el('div', { class: 'name' }, probe.label || probe.probe_id,
+      el('span', { class: 'id' }, probe.probe_id)),
+    el('div', { class: 'checks-count ' + (total === 0 ? '' : allPass ? 'allpass' : 'hasfail') },
+      isRunning ? '…' : (passed + '/' + total)),
+    el('div', { class: 'latency' }, probe.latency_ms != null ? fmtMs(probe.latency_ms) : (isRunning ? '·' : '—')),
+    el('span', null, ''),
+    el('span', { class: 'caret' }, '›'),
+  );
+  head.onclick = () => row.classList.toggle('open');
+
+  const body = el('div', { class: 'probe-body' });
+
+  // exchanges
+  if (probe.exchanges && probe.exchanges.length) {
+    const exs = el('div', { class: 'exchange-strip' });
+    probe.exchanges.forEach((ex, i) => {
+      let reqStr = '(streaming)';
+      let respStr = '(not captured)';
+      try { reqStr = ex.request ? JSON.stringify(JSON.parse(ex.request), null, 2) : reqStr; } catch { reqStr = ex.request; }
+      try { respStr = ex.response ? JSON.stringify(JSON.parse(ex.response), null, 2) : respStr; } catch { respStr = ex.response; }
+      exs.appendChild(el('details', { class: 'ex-block' },
+        el('summary', null,
+          el('span', null, 'Request #' + (i + 1)),
+          el('span', { class: 'status' }, (ex.status || 200) + ''),
+        ),
+        el('pre', null, reqStr),
+      ));
+      exs.appendChild(el('details', { class: 'ex-block' },
+        el('summary', null, el('span', null, 'Response #' + (i + 1))),
+        el('pre', null, respStr),
+      ));
+    });
+    body.appendChild(exs);
+  }
+
+  // checks
+  checks.forEach(c => {
+    if (_checkFilter === 'pass' && !c.pass) return;
+    if (_checkFilter === 'fail' && c.pass) return;
+    body.appendChild(renderCheckRow(c, probe));
+  });
+
+  const row = el('div', { class: 'probe-row' + ((anchor && checks.some(c => c.name === anchor)) || hasFail ? ' open' : ''),
+    'data-probe': probe.probe_id });
+  row.appendChild(head); row.appendChild(body);
+  return row;
+}
+
+function renderCheckRow(c, probe) {
+  const body = el('div', { class: 'body' });
+  const name = el('div', { class: 'name' });
+  if (c.label) name.appendChild(el('span', { class: 'label' }, c.label));
+  name.appendChild(el('span', null, c.name));
+  body.appendChild(name);
+  if (c.detail) body.appendChild(el('div', { class: 'detail' }, c.detail));
+  if (c.expected || c.actual) {
+    const exp = el('div', { class: 'expect' });
+    if (c.expected) { exp.appendChild(el('span', { class: 'k' }, '期望')); exp.appendChild(el('span', { class: 'v exp mono' }, c.expected)); }
+    if (c.actual)   { exp.appendChild(el('span', { class: 'k' }, '实际')); exp.appendChild(el('span', { class: 'v act mono' }, c.actual)); }
+    body.appendChild(exp);
+  }
+  if (!c.pass && c.fix) body.appendChild(el('div', { class: 'fix' }, 'fix · ' + c.fix));
+
+  const actions = el('div', { class: 'actions' });
+  actions.appendChild(el('button', { class: 'btn btn-ghost btn-xs',
+    title: '深链',
+    onclick: ev => {
+      ev.stopPropagation();
+      const url = location.origin + location.pathname + location.hash.split('/check/')[0] + '/check/' + encodeURIComponent(c.name);
+      copyText(url);
+    },
+  }, mkIcon('link', { size: 11 })));
+  actions.appendChild(el('button', { class: 'btn btn-ghost btn-xs',
+    title: '复制 Markdown',
+    onclick: ev => { ev.stopPropagation(); copyCheckMd(c, probe); },
+  }, mkIcon('copy', { size: 11 })));
+
+  return el('div', { class: 'check-row', 'data-check': c.name },
+    el('span', { class: 'led-dot ' + (c.pass ? 'pass' : 'fail') }),
+    body,
+    actions,
+  );
+}
+
+/* ─── copy helpers ─── */
+function copyCheckMd(c, probe) {
+  const md = `### \`${c.name}\` · ${c.pass ? 'PASS' : 'FAIL'}\n\n` +
+    (c.label ? `**${c.label}**  \n` : '') +
+    (probe && probe.label ? `Probe: ${probe.label} (\`${probe.probe_id}\`)\n` : '') +
+    (c.detail ? `\n${c.detail}\n` : '') +
+    (c.expected ? `\n- expected: \`${c.expected}\`\n` : '') +
+    (c.actual ? `- actual: \`${c.actual}\`\n` : '') +
+    (c.fix ? `\n_fix_: ${c.fix}\n` : '');
+  copyText(md);
+}
+
+function copyFailuresMd(runId, model) {
+  const run = State.liveRuns[runId]; if (!run) return;
+  const pm = run.perModel[model]; if (!pm || !pm.report) return;
+  const failures = (pm.report.checks || []).filter(c => !c.pass);
+  if (failures.length === 0) { toast('没有失败项', 'good'); return; }
+  const title = `# Channel probe failures — ${pm.report.channel_name || pm.report.target || ''} (${model})\n\n`;
+  const body = failures.map(c =>
+    `### \`${c.name}\` · FAIL` +
+    (c.label ? ` — ${c.label}` : '') + `\n` +
+    (c.detail ? `\n${c.detail}\n` : '') +
+    (c.expected ? `\n- expected: \`${c.expected}\`` : '') +
+    (c.actual ? `\n- actual: \`${c.actual}\`` : '') +
+    (c.fix ? `\n- fix: ${c.fix}` : '')
+  ).join('\n\n');
+  copyText(title + body);
+}
+
+function exportRunJson(runId) {
+  const run = State.liveRuns[runId]; if (!run) return;
+  const data = run.finalReports || Object.values(run.perModel).map(p => p.report).filter(Boolean);
+  downloadJSON({ run_id: runId, reports: data }, 'channel-' + runId + '.json');
+}
+
+function rerunChannel(runId) {
+  const run = State.liveRuns[runId];
+  if (!run || !run.payload) {
+    // history view: read from final reports to reconstruct payload
+    const rep0 = (run && run.finalReports && run.finalReports[0]) || null;
+    if (!rep0) { toast('无法重新运行 (缺少配置)', 'bad'); return; }
+    State.channel.targetBase = rep0.target || State.channel.targetBase;
+    State.channel.channelName = rep0.channel_name || '';
+    State.channel.models = run.finalReports.map(r => r.model);
+    toast('已填回配置,请确认 API Key', 'good');
+    location.hash = '#/channel';
+    return;
+  }
+  State.channel.targetBase = run.payload.target_base;
+  State.channel.targetKey = run.payload.target_key;
+  State.channel.channelName = run.payload.channel_name;
+  State.channel.models = run.payload.models || [run.payload.model];
+  State.channel.concurrency = run.payload.concurrency || 0;
+  kickoffChannelRun();
+}
+
+/* ─── micro: button helper ─── */
+function btn(label, opts) {
+  opts = opts || {};
+  const classes = ['btn'];
+  if (opts.primary) classes.push('btn-primary');
+  if (opts.danger)  classes.push('btn-danger');
+  if (opts.ghost)   classes.push('btn-ghost');
+  if (opts.quiet)   classes.push('btn-quiet');
+  if (opts.size === 'sm') classes.push('btn-sm');
+  if (opts.size === 'xs') classes.push('btn-xs');
+  const b = el('button', { class: classes.join(' '), onclick: opts.onClick, title: opts.title });
+  if (opts.icon) b.appendChild(mkIcon(opts.icon, { size: opts.size === 'xs' ? 11 : 13 }));
+  if (label) b.appendChild(document.createTextNode(label));
+  return b;
+}
+
+/* ─── breadcrumb setter ─── */
+function setCrumb(items, actions) {
+  const bar = $('#crumbBar');
+  bar.innerHTML = '';
+  bar.classList.remove('hidden');
+  const crumb = el('div', { class: 'crumb' });
+  items.forEach((it, i) => {
+    if (i > 0) crumb.appendChild(el('span', { class: 'sep' }, '/'));
+    if (it.cur) crumb.appendChild(el('span', { class: 'cur' + (it.mono ? ' mono' : '') }, it.cur));
+    else crumb.appendChild(el('a', { href: it.href }, it.label));
+  });
+  bar.appendChild(crumb);
+  if (actions) bar.appendChild(actions);
+}
+function hideCrumb() { $('#crumbBar').classList.add('hidden'); }

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"detector-service/internal/intelligence/eval"
 )
 
 func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent func(StreamEvent)) (*RunReport, error) {
@@ -39,9 +41,12 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 		Target:         strings.TrimRight(req.TargetBase, "/"),
 		Model:          req.Model,
 		Thinking:       req.Thinking,
+		Effort:         req.Effort,
+		ThinkingMode:   req.ThinkingMode,
+		MaxTokens:      req.MaxTokens,
 		StartedAt:      started,
 		TaskTotal:      total,
-		EvaluationNote: "Intelligence-test results recorded for offline/judge-based scoring.",
+		EvaluationNote: "Intelligence-test results recorded with automatic evaluation where reference answers are available.",
 	}
 	if total == 0 {
 		report.ElapsedMs = time.Since(started).Milliseconds()
@@ -63,13 +68,25 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 
 			res := TaskRunResult{Index: idx, Task: t.Summary(false), Rubric: t.Rubric}
 			oneStarted := time.Now()
-			answer, err := r.ask(ctx, req.TargetBase, req.TargetKey, req.Model, req.Thinking, t.Prompt)
+			answer, err := r.ask(ctx, req, t.Prompt)
 			res.ElapsedMs = time.Since(oneStarted).Milliseconds()
 			if err != nil {
 				res.Error = err.Error()
 				atomic.AddInt64(&errorCount, 1)
 			} else {
 				res.Answer = answer
+				expected := t.ReferenceAnswer
+				evalType := ""
+				if t.Metadata != nil {
+					evalType = t.Metadata["eval_type"]
+				}
+				er := eval.EvaluateTaskResult(answer, expected, evalType)
+				if er.EvalType != "manual" {
+					res.Pass = &er.Pass
+					res.Score = &er.Score
+					res.EvalType = er.EvalType
+					res.JudgeReason = er.JudgeReason
+				}
 			}
 			results[idx] = res
 
@@ -94,6 +111,26 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 	report.TaskErrors = int(errorCount)
 	report.ElapsedMs = time.Since(started).Milliseconds()
 
+	var evalResults []eval.EvalResult
+	categories := make(map[int]string)
+	for _, r := range results {
+		if r.Score != nil {
+			evalResults = append(evalResults, eval.EvalResult{
+				Pass:     *r.Pass,
+				Score:    *r.Score,
+				EvalType: r.EvalType,
+			})
+			categories[len(evalResults)-1] = r.Task.Category
+		}
+	}
+	if len(evalResults) > 0 {
+		agg := eval.Aggregate(evalResults, categories)
+		report.ScoreTotal = &agg.ScoreTotal
+		report.PassRate = &agg.PassRate
+		report.TotalEvaluated = agg.TotalEvaluated
+		report.TotalPassed = agg.TotalPassed
+	}
+
 	if onEvent != nil {
 		onEvent(StreamEvent{
 			Type:      "complete",
@@ -106,31 +143,52 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 	return report, nil
 }
 
-func (r *Runner) ask(ctx context.Context, targetBase, targetKey, model string, thinking bool, prompt string) (string, error) {
+func (r *Runner) ask(ctx context.Context, runReq RunRequest, prompt string) (string, error) {
+	maxTok := 4096
+	if runReq.MaxTokens > 0 {
+		maxTok = runReq.MaxTokens
+	}
+
 	payload := map[string]any{
-		"model": model,
+		"model":      runReq.Model,
+		"max_tokens": maxTok,
 		"messages": []any{
 			map[string]any{"role": "user", "content": prompt},
 		},
 	}
-	if thinking {
+
+	switch runReq.ThinkingMode {
+	case "adaptive_only", "adaptive":
+		payload["thinking"] = map[string]any{"type": "adaptive"}
+	case "enabled":
 		payload["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 10000}
+	default:
+		if runReq.Thinking {
+			if tp := deriveThinkingParam(runReq.Model); tp != nil {
+				payload["thinking"] = tp
+			}
+		}
 	}
+
+	if runReq.Effort != "" {
+		payload["output_config"] = map[string]any{"effort": runReq.Effort}
+	}
+
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
-	url := strings.TrimRight(targetBase, "/") + "/v1/messages"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	url := strings.TrimRight(runReq.TargetBase, "/") + "/v1/messages"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("x-api-key", targetKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("x-api-key", runReq.TargetKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := r.Client.Do(req)
+	resp, err := r.Client.Do(httpReq)
 	if err != nil {
 		return "", err
 	}
@@ -186,4 +244,24 @@ func truncateStr(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// deriveThinkingParam infers the correct thinking parameter from model name.
+// Returns nil for models that don't support thinking (e.g. Haiku, unknown models).
+func deriveThinkingParam(model string) map[string]any {
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "haiku"):
+		return nil
+	case strings.Contains(m, "opus-4-7"):
+		return map[string]any{"type": "adaptive"}
+	case strings.Contains(m, "opus-4-6"), strings.Contains(m, "sonnet-4-6"):
+		return map[string]any{"type": "adaptive"}
+	case strings.Contains(m, "opus-4-5"):
+		return map[string]any{"type": "enabled", "budget_tokens": 10000}
+	case strings.Contains(m, "sonnet"), strings.Contains(m, "opus"):
+		return map[string]any{"type": "adaptive"}
+	default:
+		return nil
+	}
 }

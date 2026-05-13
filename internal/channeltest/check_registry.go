@@ -116,10 +116,12 @@ var checkRegistry = map[string]CheckMeta{
 	"pdf_extract": {Name: "pdf_extract", Label: "PDF 文本提取", Category: CatMultimodal},
 
 	// ── Effort-level thinking ──
-	"effort_high_thinking":  {Name: "effort_high_thinking", Label: "effortHigh 必须 thinking 块", Category: CatSignature},
-	"effort_high_signature": {Name: "effort_high_signature", Label: "effortHigh signature 有效", Category: CatSignature, DefaultFix: "signature_rewrite"},
+	"effort_high_thinking":   {Name: "effort_high_thinking", Label: "effortHigh 必须 thinking 块", Category: CatSignature},
+	"effort_high_signature":  {Name: "effort_high_signature", Label: "effortHigh signature 有效", Category: CatSignature, DefaultFix: "signature_rewrite"},
 	"effort_medium_no_think": {Name: "effort_medium_no_think", Label: "effortMedium 应抑制 thinking", Category: CatSignature},
-	"effort_low_no_think":   {Name: "effort_low_no_think", Label: "effortLow 应跳过 thinking", Category: CatSignature},
+	"effort_low_no_think":    {Name: "effort_low_no_think", Label: "effortLow 应跳过 thinking", Category: CatSignature},
+	"effort_max_thinking":    {Name: "effort_max_thinking", Label: "effortMax 必须 thinking 块", Category: CatSignature},
+	"effort_xhigh_thinking":  {Name: "effort_xhigh_thinking", Label: "effortXHigh 必须 thinking 块 (仅 Opus 4.7)", Category: CatSignature},
 
 	// ── Signature validation ──
 	"signature_empty_rejected": {Name: "signature_empty_rejected", Label: "空 signature 拒绝验证", Category: CatSignature},

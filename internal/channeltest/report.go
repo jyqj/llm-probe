@@ -19,18 +19,20 @@ type CheckResult struct {
 
 // Report is the full result of a channel test suite run.
 type Report struct {
-	ID           string           `json:"id"`
-	ChannelName  string           `json:"channel_name,omitempty"`
-	Target       string           `json:"target"`
-	Model        string           `json:"model"`
-	Timestamp    time.Time        `json:"timestamp"`
-	ElapsedMs    int64            `json:"elapsed_ms"`
-	Checks       []CheckResult    `json:"checks"`
-	ProbeResults []ProbeResult    `json:"probe_results,omitempty"`
-	Billing      *BillingEstimate `json:"billing,omitempty"`
-	Recommended  Recommendation   `json:"recommended"`
-	Summary      string           `json:"summary"`
-	Score        *ScoreReport     `json:"score,omitempty"`
+	ID            string           `json:"id"`
+	ChannelName   string           `json:"channel_name,omitempty"`
+	Target        string           `json:"target"`
+	Model         string           `json:"model"`
+	Timestamp     time.Time        `json:"timestamp"`
+	ElapsedMs     int64            `json:"elapsed_ms"`
+	Checks        []CheckResult    `json:"checks"`
+	ProbeResults  []ProbeResult    `json:"probe_results,omitempty"`
+	Billing       *BillingEstimate `json:"billing,omitempty"`
+	Recommended   Recommendation   `json:"recommended"`
+	Summary       string           `json:"summary"`
+	Score         *ScoreReport     `json:"score,omitempty"`
+	SkippedProbes []string         `json:"skipped_probes,omitempty"`
+	RunProfile    string           `json:"run_profile,omitempty"`
 }
 
 // InjectLabels fills in the Label field from the check registry for all results.

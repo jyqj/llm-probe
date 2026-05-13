@@ -21,6 +21,20 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 
 	// 综合审计：只编排渠道测试 + 智商测试，不承载具体检测逻辑。
 	mux.HandleFunc("/api/audit/run", a.adminAuth(a.handleAuditRun))
+
+	// 持续监控：target 管理、调度、运行记录、健康状态。
+	mux.HandleFunc("/api/monitor/targets", a.adminAuth(a.handleMonitorTargets))
+	mux.HandleFunc("/api/monitor/targets/", a.adminAuth(a.handleMonitorTargetDetail))
+	mux.HandleFunc("/api/monitor/runs", a.adminAuth(a.handleMonitorRuns))
+	mux.HandleFunc("/api/monitor/status", a.adminAuth(a.handleMonitorStatus))
+
+	// 基线：录制 / 列表 / 删除。
+	mux.HandleFunc("/api/monitor/baselines", a.adminAuth(a.handleMonitorBaselines))
+	mux.HandleFunc("/api/monitor/baselines/", a.adminAuth(a.handleMonitorBaselineDetail))
+
+	// 告警：事件列表、规则查看。
+	mux.HandleFunc("/api/alert/events", a.adminAuth(a.handleAlertEvents))
+	mux.HandleFunc("/api/alert/rules", a.adminAuth(a.handleAlertRules))
 }
 
 func (a *API) adminAuth(h http.HandlerFunc) http.HandlerFunc {

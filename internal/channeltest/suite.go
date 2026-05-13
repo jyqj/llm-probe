@@ -1,6 +1,7 @@
 package channeltest
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -41,21 +42,34 @@ func (p *Runner) Run(targetBase, targetKey, model string, concurrency int) (*Rep
 
 	InjectLabels(checks)
 
-	totalIn, totalOut := collectTokens(checks)
-	billing := EstimateBilling(model, totalIn, totalOut)
+	billing := EstimateRunCost(model, probes)
+
+	selectedIDs := make(map[string]bool, len(probes))
+	for _, pb := range probes {
+		selectedIDs[pb.ID] = true
+	}
+	var skippedProbes []string
+	for _, pb := range allProbes {
+		if !selectedIDs[pb.ID] {
+			skippedProbes = append(skippedProbes, pb.ID)
+		}
+	}
 
 	report := &Report{
-		Target:       targetBase,
-		Model:        model,
-		Timestamp:    time.Now(),
-		ElapsedMs:    time.Since(startedAt).Milliseconds(),
-		Checks:       checks,
-		ProbeResults: results,
-		Billing:      &billing,
+		Target:        targetBase,
+		Model:         model,
+		Timestamp:     time.Now(),
+		ElapsedMs:     time.Since(startedAt).Milliseconds(),
+		Checks:        checks,
+		ProbeResults:  results,
+		Billing:       &billing,
+		SkippedProbes: skippedProbes,
 	}
 	report.Recommended = RecommendFixes(checks)
 	report.Score = CalculateScore(checks, "full")
 	report.Summary = BuildSummaryWithScore(checks, report.Score)
+	report.RunProfile = fmt.Sprintf("Ran %d probes (%d checks), skipped %d. Model: %s. Est cost: $%.4f. Elapsed: %dms.",
+		len(probes), len(checks), len(skippedProbes), model, billing.TotalCost, report.ElapsedMs)
 	return report, nil
 }
 
@@ -213,6 +227,7 @@ func EstimateRunCost(model string, probes []*Probe) BillingEstimate {
 		OutputCost:   round4(outCost),
 		TotalCost:    round4(inCost + outCost),
 		PriceRatio:   round2(caps.InputPrice / 3.0),
+		Source:       "estimated",
 	}
 }
 

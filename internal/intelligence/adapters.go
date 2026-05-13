@@ -9,11 +9,33 @@ type HFSource struct {
 	Split   string
 }
 
-// Currently only SWE-Atlas-QnA is supported as a built-in dataset (embedded CSV).
-// Additional adapters can be added here when new benchmarks are needed.
-var knownAdapters = map[string]ColumnAdapter{}
+// knownAdapters maps dataset names to column adapters for HuggingFace loading.
+var knownAdapters = map[string]ColumnAdapter{
+	"SWE-Atlas-QnA": sweAtlasAdapter{},
+}
 
-var knownHFSources = map[string]HFSource{}
+var knownHFSources = map[string]HFSource{
+	"SWE-Atlas-QnA": {
+		Dataset: "ScaleAI/SWE-Atlas-QnA",
+		Config:  "default",
+		Split:   "test",
+	},
+}
+
+// sweAtlasAdapter converts SWE-Atlas-QnA HF rows to Tasks.
+type sweAtlasAdapter struct{}
+
+func (sweAtlasAdapter) DatasetName() string    { return "SWE-Atlas-QnA" }
+func (sweAtlasAdapter) DatasetVersion() string { return "hf-live" }
+func (sweAtlasAdapter) ToTask(row map[string]any) Task {
+	return Task{
+		TaskID:          strVal(row, "task_id"),
+		Prompt:          strVal(row, "prompt"),
+		ReferenceAnswer: strVal(row, "reference_answer"),
+		Language:        strVal(row, "language"),
+		Category:        strVal(row, "category"),
+	}
+}
 
 // KnownAdapter returns the column adapter for a built-in public intelligence dataset.
 func KnownAdapter(name string) (ColumnAdapter, bool) {

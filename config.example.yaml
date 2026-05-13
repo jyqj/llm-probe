@@ -20,6 +20,19 @@ log:
 admin:
   token: "${CHANNEL_ADMIN_TOKEN:-}"
 
+# Persistent storage.
+storage:
+  path: "data/detector.db"
+
 # Channel authenticity test settings.
 channel:
   sig_secret: "${CHANNEL_SIG_SECRET:-}"
+
+# Alert configuration.
+alert:
+  enabled: true
+  webhooks:
+    - name: "feishu"
+      url: "${ALERT_WEBHOOK_URL:-}"
+      headers:
+        Content-Type: "application/json"
