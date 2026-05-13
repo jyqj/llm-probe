@@ -299,7 +299,7 @@ function getModelCaps(model) {
 function thinkingModesFor(model) {
   const c = getModelCaps(model);
   if (!c.thinking) return ['off'];
-  if (c.thinkingMode === 'adaptive_only') return ['adaptive'];
+  if (c.thinkingMode === 'adaptive_only') return ['off', 'adaptive'];
   if (c.thinkingMode === 'adaptive') return ['off', 'adaptive'];
   if (c.thinkingMode === 'enabled') return ['off', 'enabled'];
   return ['off'];
