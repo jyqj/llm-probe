@@ -212,7 +212,6 @@ const CAT_OF = {
   tag_replay:'behavioral',identity_response:'behavioral',identity_no_leak:'behavioral',
   identity_platform:'behavioral',poison_answer:'behavioral',logic_answer:'behavioral',
   tool_forced_compliance:'behavioral',magic_refusal:'behavioral',
-  intelligence_answer:'behavioral',
   image_ocr:'multimodal',pdf_extract:'multimodal',
 };
 function catOf(name) { return CAT_OF[name] || 'other'; }

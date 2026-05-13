@@ -134,9 +134,6 @@ var checkRegistry = map[string]CheckMeta{
 	// ── Minimal token billing ──
 	"minimal_input_tokens":  {Name: "minimal_input_tokens", Label: "最小 token 计费核对 (input)", Category: CatFingerprint},
 	"minimal_output_tokens": {Name: "minimal_output_tokens", Label: "最小 token 计费核对 (output)", Category: CatFingerprint},
-
-	// ── Intelligence test ──
-	"intelligence_answer": {Name: "intelligence_answer", Label: "降智测试 · 糖果抽屉题", Category: CatBehavioral},
 }
 
 // checkCategoryMap maps check names to their category.

@@ -135,5 +135,4 @@ var allProbes = []*Probe{
 	probeSignatureReject,
 	probeBashTool,
 	probeMinimalTokens,
-	probeIntelligence,
 }

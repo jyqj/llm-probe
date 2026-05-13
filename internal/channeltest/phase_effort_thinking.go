@@ -79,7 +79,7 @@ func (p *Runner) runEffortHigh(targetBase, targetKey, model string) ([]CheckResu
 		"model":         model,
 		"max_tokens":    16000,
 		"stream":        false,
-		"messages":      []any{umsg("请逐步推理：在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形）。苹果味圆形7个五角星7个，桃子味圆形9个五角星6个，西瓜味圆形8个五角星4个。最少取出多少个糖才能保证手中同时拥有不同形状的苹果味和桃子味的糖？")},
+		"messages":      []any{umsg("Explain step by step: what is the sum of all prime numbers less than 20?")},
 		"output_config": EffortParam("high"),
 	}
 	if tp := ThinkingParam(model); tp != nil {
