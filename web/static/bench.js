@@ -56,7 +56,7 @@ function buildBenchConfigBody() {
       })),
       buildField('MODEL', el('input', {
         class: 'mono', placeholder: 'claude-opus-4-6', value: B.model,
-        oninput: e => { B.model = e.target.value.trim(); },
+        oninput: e => { B.model = e.target.value.trim(); rebuildRunConfig(); },
         list: 'benchModelList',
         style: { width: '100%', background: 'transparent', border: 'none', padding: '0' }
       })),
@@ -97,19 +97,133 @@ function buildBenchConfigBody() {
   dsPanel.appendChild(dsBody);
   wrap.appendChild(dsPanel);
 
-  // Current dataset summary + CTA
+  // Dataset summary
   if (State.currentDataset) {
-    const summaryPanel = el('div', { class: 'panel', id: 'dsSummaryPanel' });
+    const summaryPanel = el('div', { class: 'panel', id: 'dsSummaryPanel', style: { marginBottom: '12px' } });
     summaryPanel.appendChild(el('div', { class: 'panel-head' },
       el('h3', null, State.currentDataset),
-      el('div', { class: 'spacer' }),
-      btn('开始运行', { primary: true, icon: 'play', onClick: () => openRunConfigDrawer() }),
     ));
     summaryPanel.appendChild(el('div', { class: 'panel-body', id: 'dsSummaryBody' }, el('div', { class: 'muted' }, '加载中…')));
     wrap.appendChild(summaryPanel);
     loadDatasetSummary(State.currentDataset);
+
+    // Run config panel — thinking / effort / scope / concurrency
+    const configPanel = el('div', { class: 'panel', style: { marginBottom: '12px' } });
+    configPanel.appendChild(el('div', { class: 'panel-head' },
+      el('h3', null, '运行配置'),
+      el('span', { class: 'meta', id: 'runConfigModelHint' }, B.model || '—'),
+      el('div', { class: 'spacer' }),
+      btn('开始运行', { primary: true, icon: 'play', onClick: () => kickoffBenchRun() }),
+    ));
+    const configBody = el('div', { class: 'panel-body', id: 'runConfigBody' });
+    configBody.appendChild(buildRunConfigContent());
+    configPanel.appendChild(configBody);
+    wrap.appendChild(configPanel);
   }
   return wrap;
+}
+
+/* ─── Inline run config (replaces drawer) ─── */
+function buildRunConfigContent() {
+  const B = State.bench;
+  const effectiveModel = B.model;
+  const frag = el('div');
+
+  // Thinking mode
+  const tmodes = thinkingModesFor(effectiveModel);
+  if (!B.thinkingMode || !tmodes.includes(B.thinkingMode)) {
+    B.thinkingMode = tmodes.includes('adaptive') ? 'adaptive' : tmodes[0];
+    B.thinking = B.thinkingMode !== 'off';
+  }
+  frag.appendChild(buildField('THINKING MODE', (() => {
+    const seg = el('div', { class: 'seg', style: { width: 'fit-content' } });
+    tmodes.forEach(v => {
+      const lbl = v === 'off' ? 'OFF' : v === 'adaptive' ? 'Adaptive' : v === 'adaptive_only' ? 'Adaptive' : 'Enabled';
+      seg.appendChild(el('button', { class: B.thinkingMode === v ? 'active' : '',
+        onclick: () => { B.thinkingMode = v; B.thinking = v !== 'off'; rebuildRunConfig(); } }, lbl));
+    });
+    return seg;
+  })()));
+
+  // Effort level
+  const elevels = effortLevelsFor(effectiveModel);
+  if (elevels.length > 0) {
+    const modeSeg = el('div', { class: 'seg', style: { width: 'fit-content' } });
+    modeSeg.appendChild(el('button', { class: !B.multiEffort ? 'active' : '',
+      onclick: () => { B.multiEffort = false; rebuildRunConfig(); } }, '单个'));
+    modeSeg.appendChild(el('button', { class: B.multiEffort ? 'active' : '',
+      onclick: () => { B.multiEffort = true; if (!B.selectedEfforts.length) B.selectedEfforts = [...elevels]; rebuildRunConfig(); } }, '批量对比'));
+    frag.appendChild(buildField('EFFORT MODE', modeSeg));
+
+    if (B.multiEffort) {
+      B.selectedEfforts = B.selectedEfforts.filter(e => elevels.includes(e));
+      if (!B.selectedEfforts.length) B.selectedEfforts = [...elevels];
+      const checkWrap = el('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } });
+      elevels.forEach(lv => {
+        const checked = B.selectedEfforts.includes(lv);
+        checkWrap.appendChild(el('label', { style: { display: 'flex', gap: '4px', alignItems: 'center', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--font-mono)' } },
+          el('input', { type: 'checkbox', checked: checked ? '' : null,
+            onchange: () => {
+              if (checked) B.selectedEfforts = B.selectedEfforts.filter(e => e !== lv);
+              else B.selectedEfforts.push(lv);
+              rebuildRunConfig();
+            } }),
+          lv));
+      });
+      frag.appendChild(buildField('EFFORT LEVELS (' + B.selectedEfforts.length + '/' + elevels.length + ')', checkWrap));
+    } else {
+      if (B.effort && !elevels.includes(B.effort)) B.effort = '';
+      const allOpts = [''].concat(elevels);
+      frag.appendChild(buildField('EFFORT', (() => {
+        const effortSeg = el('div', { class: 'seg', style: { width: 'fit-content' } });
+        allOpts.forEach(v => {
+          effortSeg.appendChild(el('button', { class: B.effort === v ? 'active' : '',
+            onclick: () => { B.effort = v; rebuildRunConfig(); } }, v || 'default'));
+        });
+        return effortSeg;
+      })()));
+    }
+  } else {
+    B.effort = ''; B.multiEffort = false;
+    frag.appendChild(buildField('EFFORT', el('span', { class: 'muted', style: { fontSize: '11px' } }, '此模型不支持 effort')));
+  }
+
+  // Scope
+  frag.appendChild(el('div', { style: { borderTop: '1px solid var(--line)', margin: '14px 0 10px', opacity: '.4' } }));
+  const scopeSeg = el('div', { class: 'seg', style: { width: 'fit-content' } });
+  [['all', '全量'], ['custom', '自定义筛选']].forEach(([v, lbl]) => {
+    scopeSeg.appendChild(el('button', { class: B.scope === v ? 'active' : '',
+      onclick: () => { B.scope = v; rebuildRunConfig(); } }, lbl));
+  });
+  frag.appendChild(buildField('SCOPE', scopeSeg));
+
+  if (B.scope === 'custom') {
+    frag.appendChild(buildField('LANGUAGE', el('input', { value: B.lang, placeholder: 'go / python (留空=全部)',
+      oninput: e => { B.lang = e.target.value; },
+      style: { width: '100%', background: 'transparent', border: 'none', padding: '0' } })));
+    frag.appendChild(buildField('CATEGORY', el('input', { value: B.category, placeholder: 'Security (留空=全部)',
+      oninput: e => { B.category = e.target.value; },
+      style: { width: '100%', background: 'transparent', border: 'none', padding: '0' } })));
+    frag.appendChild(buildField('LIMIT', el('input', { type: 'number', value: B.limit, placeholder: '0=全部',
+      oninput: e => { B.limit = parseInt(e.target.value) || 0; },
+      class: 'mono', style: { width: '120px', background: 'transparent', border: 'none', padding: '0' } })));
+  }
+
+  frag.appendChild(buildField('CONCURRENCY', el('input', { type: 'number', min: 1, max: 20,
+    value: B.concurrency, class: 'mono',
+    oninput: e => { B.concurrency = parseInt(e.target.value) || 1; },
+    style: { width: '80px', background: 'transparent', border: 'none', padding: '0' } })));
+
+  return frag;
+}
+
+function rebuildRunConfig() {
+  const container = document.getElementById('runConfigBody');
+  if (!container) return;
+  container.innerHTML = '';
+  container.appendChild(buildRunConfigContent());
+  const hint = document.getElementById('runConfigModelHint');
+  if (hint) hint.textContent = State.bench.model || '—';
 }
 
 async function loadDatasetSummary(name) {
@@ -136,121 +250,8 @@ async function loadDatasetSummary(name) {
   }
 }
 
-/* ─── Run config drawer (shown when clicking "开始运行") ─── */
-function openRunConfigDrawer() {
-  const B = State.bench;
-  const body = el('div');
-
-  const onChange = (k, parse) => e => { B[k] = parse ? parse(e.target.value) : e.target.value; };
-
-  body.appendChild(el('div', { class: 'eyebrow', style: { marginBottom: '6px' } }, 'SCOPE'));
-  body.appendChild((() => {
-    const seg = el('div', { class: 'seg', style: { width: 'fit-content', marginBottom: '12px' } });
-    [['all', '全量运行'], ['custom', '自定义筛选']].forEach(([v, lbl]) => {
-      const b = el('button', { class: B.scope === v ? 'active' : '',
-        onclick: () => { B.scope = v; openRunConfigDrawer(); } }, lbl);
-      seg.appendChild(b);
-    });
-    return seg;
-  })());
-
-  if (B.scope === 'custom') {
-    body.appendChild(buildField('LANGUAGE', el('input', { value: B.lang, placeholder: 'go / python (留空=全部)',
-      oninput: onChange('lang'),
-      style: { width: '100%', background: 'transparent', border: 'none', padding: '0' } })));
-    body.appendChild(buildField('CATEGORY', el('input', { value: B.category, placeholder: 'Security (留空=全部)',
-      oninput: onChange('category'),
-      style: { width: '100%', background: 'transparent', border: 'none', padding: '0' } })));
-    body.appendChild(buildField('LIMIT', el('input', { type: 'number', value: B.limit, placeholder: '0=全部',
-      oninput: onChange('limit', v => parseInt(v) || 0),
-      class: 'mono', style: { width: '120px', background: 'transparent', border: 'none', padding: '0' } })));
-  }
-
-  body.appendChild(el('div', { class: 'eyebrow', style: { marginTop: '14px', marginBottom: '6px' } }, 'EXECUTION'));
-  body.appendChild(buildField('CONCURRENCY', el('input', { type: 'number', min: 1, max: 20,
-    value: B.concurrency, class: 'mono',
-    oninput: onChange('concurrency', v => parseInt(v) || 1),
-    style: { width: '80px', background: 'transparent', border: 'none', padding: '0' } })));
-
-  // Thinking mode — options depend on selected model
-  const effectiveModel = B.runModel || B.model;
-  const tmodes = thinkingModesFor(effectiveModel);
-  if (!B.thinkingMode || !tmodes.includes(B.thinkingMode)) {
-    B.thinkingMode = tmodes.includes('adaptive') ? 'adaptive' : tmodes[0];
-    B.thinking = B.thinkingMode !== 'off';
-  }
-  body.appendChild(buildField('THINKING MODE', (() => {
-    const seg = el('div', { class: 'seg', style: { width: 'fit-content' } });
-    tmodes.forEach(v => {
-      const lbl = v === 'off' ? 'OFF' : v === 'adaptive' ? 'Adaptive' : v === 'adaptive_only' ? 'Adaptive' : 'Enabled';
-      const b = el('button', { class: B.thinkingMode === v ? 'active' : '',
-        onclick: () => { B.thinkingMode = v; B.thinking = v !== 'off'; openRunConfigDrawer(); } }, lbl);
-      seg.appendChild(b);
-    });
-    return seg;
-  })()));
-
-  // Effort level — options depend on selected model
-  const elevels = effortLevelsFor(effectiveModel);
-  if (elevels.length > 0) {
-    // multi-effort toggle
-    const modeToggle = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' } });
-    const seg = el('div', { class: 'seg', style: { width: 'fit-content' } });
-    const bSingle = el('button', { class: !B.multiEffort ? 'active' : '',
-      onclick: () => { B.multiEffort = false; openRunConfigDrawer(); } }, '单个');
-    const bMulti = el('button', { class: B.multiEffort ? 'active' : '',
-      onclick: () => { B.multiEffort = true; if (!B.selectedEfforts.length) B.selectedEfforts = [...elevels]; openRunConfigDrawer(); } }, '批量对比');
-    seg.appendChild(bSingle); seg.appendChild(bMulti);
-    modeToggle.appendChild(seg);
-    body.appendChild(buildField('EFFORT MODE', modeToggle));
-
-    if (B.multiEffort) {
-      B.selectedEfforts = B.selectedEfforts.filter(e => elevels.includes(e));
-      if (!B.selectedEfforts.length) B.selectedEfforts = [...elevels];
-      const checkWrap = el('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } });
-      elevels.forEach(lv => {
-        const checked = B.selectedEfforts.includes(lv);
-        const cb = el('label', { style: { display: 'flex', gap: '4px', alignItems: 'center', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--font-mono)' } },
-          el('input', { type: 'checkbox', checked: checked ? '' : null,
-            onchange: () => {
-              if (checked) B.selectedEfforts = B.selectedEfforts.filter(e => e !== lv);
-              else B.selectedEfforts.push(lv);
-              openRunConfigDrawer();
-            } }),
-          lv);
-        checkWrap.appendChild(cb);
-      });
-      body.appendChild(buildField('EFFORT LEVELS (' + B.selectedEfforts.length + '/' + elevels.length + ')', checkWrap));
-    } else {
-      if (B.effort && !elevels.includes(B.effort)) B.effort = '';
-      const allOpts = [''].concat(elevels);
-      body.appendChild(buildField('EFFORT', (() => {
-        const effortSeg = el('div', { class: 'seg', style: { width: 'fit-content' } });
-        allOpts.forEach(v => {
-          const b = el('button', { class: B.effort === v ? 'active' : '',
-            onclick: () => { B.effort = v; openRunConfigDrawer(); } }, v || 'default');
-          effortSeg.appendChild(b);
-        });
-        return effortSeg;
-      })()));
-    }
-  } else {
-    B.effort = '';
-    B.multiEffort = false;
-    body.appendChild(buildField('EFFORT', el('span', { class: 'muted', style: { fontSize: '11px' } }, '此模型不支持 effort')));
-  }
-
-  body.appendChild(buildField('MODEL OVERRIDE (optional)', el('input', { value: B.runModel, placeholder: '留空=使用上方 Model',
-    oninput: e => { B.runModel = e.target.value.trim(); openRunConfigDrawer(); }, class: 'mono',
-    style: { width: '100%', background: 'transparent', border: 'none', padding: '0' } })));
-
-  const foot = el('div', null,
-    btn('取消', { ghost: true, onClick: closeDrawer }),
-    btn('开始运行', { primary: true, icon: 'play', onClick: () => { closeDrawer(); kickoffBenchRun(); } }),
-  );
-
-  openDrawer('运行配置 · ' + State.currentDataset, body, foot);
-}
+/* openRunConfigDrawer kept as no-op for legacy references */
+function openRunConfigDrawer() { location.hash = '#/bench'; }
 
 /* ─── add-dataset drawer ─── */
 function openDatasetDrawer() {
@@ -804,14 +805,10 @@ function rerunBench(runId) {
       lang: run.payload.language || '', category: run.payload.category || '',
       limit: run.payload.limit || 0, scope: (run.payload.language || run.payload.category || run.payload.limit) ? 'custom' : 'all',
     });
-    if (run.dataset) State.currentDataset = run.dataset;
-    location.hash = '#/bench';
-    setTimeout(() => openRunConfigDrawer(), 200);
-  } else {
-    if (run.dataset) State.currentDataset = run.dataset;
-    location.hash = '#/bench';
-    toast('已填回部分配置,请确认 API Key 后重新开始', 'good');
   }
+  if (run.dataset) State.currentDataset = run.dataset;
+  location.hash = '#/bench';
+  toast('已填回配置,确认后点击开始运行', 'good');
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
