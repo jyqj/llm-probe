@@ -1,0 +1,12 @@
+data/
+seeds/
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.jsonl
+.git
+.DS_Store
+detector-service
+detector-service-linux
+detector_captures/
