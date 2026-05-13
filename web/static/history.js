@@ -1,22 +1,31 @@
 /* ─── history.js · History list (channel + bench) + compare ──────────── */
 
+const HISTORY_PAGE_SIZE = 40;
+
 let _historyState = {
-  channel: { items: [], filtered: [], selected: new Set(),
-    filter: { q: '', channel: '', model: '', status: '' } },
-  bench:   { items: [], filtered: [], selected: new Set(),
-    filter: { q: '', dataset: '', model: '', effort: '', status: '' } },
+  channel: { items: [], total: 0, filtered: [], selected: new Set(),
+    filter: { q: '', channel: '', model: '', status: '' },
+    loaded: 0, loading: false, hasMore: true },
+  bench:   { items: [], total: 0, filtered: [], selected: new Set(),
+    filter: { q: '', dataset: '', model: '', effort: '', status: '' },
+    loaded: 0, loading: false, hasMore: true },
 };
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Channel history
+ * ═══════════════════════════════════════════════════════════════════════ */
 
 async function renderChannelHistory() {
   setCrumb([{ label: 'Channel', href: '#/channel' }, { cur: '历史' }],
     el('div', { class: 'crumb-actions' },
       btn('新建检测', { primary: true, icon: 'play', size: 'sm', onClick: () => location.hash = '#/channel' }),
     ));
+  const H = _historyState.channel;
+  H.items = []; H.loaded = 0; H.hasMore = true; H.total = 0;
   const v = $('#view');
   v.innerHTML = '<div class="empty">加载中…</div>';
   try {
-    const data = await api('/api/channel/history');
-    _historyState.channel.items = data.history || [];
+    await loadChannelPage(H);
     paintChannelHistory();
   } catch (e) {
     v.innerHTML = '';
@@ -25,8 +34,22 @@ async function renderChannelHistory() {
   }
 }
 
-function paintChannelHistory() {
-  const H = _historyState.channel;
+async function loadChannelPage(H) {
+  if (H.loading || !H.hasMore) return;
+  H.loading = true;
+  try {
+    const data = await api('/api/channel/history?limit=' + HISTORY_PAGE_SIZE + '&offset=' + H.loaded);
+    const page = data.history || [];
+    H.total = data.total || 0;
+    H.items = H.items.concat(page);
+    H.loaded += page.length;
+    H.hasMore = H.loaded < H.total;
+  } finally {
+    H.loading = false;
+  }
+}
+
+function applyChannelFilter(H) {
   const f = H.filter;
   H.filtered = H.items.filter(r => {
     if (f.q) {
@@ -43,53 +66,164 @@ function paintChannelHistory() {
     }
     return true;
   });
-
-  const v = $('#view'); v.innerHTML = '';
-  const panel = el('div', { class: 'panel' });
-  panel.appendChild(buildHistoryFilters(H, paintChannelHistory, 'channel'));
-  panel.appendChild(buildChannelHistoryTable(H));
-  v.appendChild(panel);
 }
 
+function paintChannelHistory() {
+  const H = _historyState.channel;
+  applyChannelFilter(H);
+
+  const v = $('#view'); v.innerHTML = '';
+
+  // sticky filterbar — outside panel
+  v.appendChild(buildHistoryFilters(H, paintChannelHistory, 'channel'));
+
+  // table
+  const wrap = el('div', { class: 'hist-table-wrap' });
+  wrap.appendChild(buildChannelHistoryTable(H));
+
+  // load more / infinite scroll sentinel
+  if (H.hasMore) {
+    const sentinel = el('div', { class: 'hist-load-more' });
+    const loadBtn = btn('加载更多 (' + H.loaded + '/' + H.total + ')', {
+      ghost: true, size: 'sm',
+      onClick: async () => {
+        await loadChannelPage(H);
+        paintChannelHistory();
+      }
+    });
+    sentinel.appendChild(loadBtn);
+    wrap.appendChild(sentinel);
+    observeLoadMore(sentinel, async () => {
+      await loadChannelPage(H);
+      paintChannelHistory();
+    });
+  } else if (H.total > 0) {
+    wrap.appendChild(el('div', { class: 'hist-end' }, '已加载全部 ' + H.total + ' 条'));
+  }
+
+  v.appendChild(wrap);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Bench history
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+async function renderBenchHistory() {
+  setCrumb([{ label: 'Benchmark', href: '#/bench' }, { cur: '历史' }],
+    el('div', { class: 'crumb-actions' },
+      btn('新建运行', { primary: true, icon: 'play', size: 'sm', onClick: () => location.hash = '#/bench' }),
+    ));
+  const H = _historyState.bench;
+  H.items = []; H.loaded = 0; H.hasMore = true; H.total = 0;
+  const v = $('#view');
+  v.innerHTML = '<div class="empty">加载中…</div>';
+  try {
+    await loadBenchPage(H);
+    paintBenchHistory();
+  } catch (e) {
+    v.innerHTML = '';
+    v.appendChild(el('div', { class: 'empty', style: { color: 'var(--bad-ink)' } },
+      el('div', { class: 'glyph' }, '×'), '加载失败: ' + esc(e.message)));
+  }
+}
+
+async function loadBenchPage(H) {
+  if (H.loading || !H.hasMore) return;
+  H.loading = true;
+  try {
+    const data = await api('/api/intelligence/history?limit=' + HISTORY_PAGE_SIZE + '&offset=' + H.loaded);
+    const page = data.history || [];
+    H.total = data.total || 0;
+    H.items = H.items.concat(page);
+    H.loaded += page.length;
+    H.hasMore = H.loaded < H.total;
+  } finally {
+    H.loading = false;
+  }
+}
+
+function applyBenchFilter(H) {
+  const f = H.filter;
+  H.filtered = H.items.filter(r => {
+    if (f.q) {
+      const s = ((r.dataset_name || '') + ' ' + (r.model || '') + ' ' + (r.effort || '')).toLowerCase();
+      if (!s.includes(f.q.toLowerCase())) return false;
+    }
+    if (f.dataset && (r.dataset_name || '') !== f.dataset) return false;
+    if (f.model   && (r.model || '')        !== f.model) return false;
+    if (f.effort  && (r.effort || '')       !== f.effort) return false;
+    if (f.status) {
+      const ok = (r.task_errors || 0) === 0;
+      if (f.status === 'ok' && !ok) return false;
+      if (f.status === 'has_errors' && ok) return false;
+    }
+    return true;
+  });
+}
+
+function paintBenchHistory() {
+  const H = _historyState.bench;
+  applyBenchFilter(H);
+
+  const v = $('#view'); v.innerHTML = '';
+  v.appendChild(buildHistoryFilters(H, paintBenchHistory, 'bench'));
+
+  const wrap = el('div', { class: 'hist-table-wrap' });
+  wrap.appendChild(buildBenchHistoryTable(H));
+
+  if (H.hasMore) {
+    const sentinel = el('div', { class: 'hist-load-more' });
+    sentinel.appendChild(btn('加载更多 (' + H.loaded + '/' + H.total + ')', {
+      ghost: true, size: 'sm',
+      onClick: async () => { await loadBenchPage(H); paintBenchHistory(); }
+    }));
+    wrap.appendChild(sentinel);
+    observeLoadMore(sentinel, async () => { await loadBenchPage(H); paintBenchHistory(); });
+  } else if (H.total > 0) {
+    wrap.appendChild(el('div', { class: 'hist-end' }, '已加载全部 ' + H.total + ' 条'));
+  }
+
+  v.appendChild(wrap);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Shared: filters, tables, infinite scroll
+ * ═══════════════════════════════════════════════════════════════════════ */
+
 function buildHistoryFilters(H, repaint, kind) {
-  const bar = el('div', { class: 'filterbar' });
+  const bar = el('div', { class: 'hist-filterbar' });
   const f = H.filter;
 
   const q = el('input', { placeholder: 'search…', value: f.q,
     oninput: e => { f.q = e.target.value; repaint(); },
     style: { width: '160px' } });
-  q.appendChild = null;
-  bar.appendChild(el('span', { class: 'lbl' }, 'q'));
+  bar.appendChild(el('span', { class: 'lbl' }, 'Q'));
   bar.appendChild(q);
 
-  // channel/dataset selector
   const items = H.items;
   if (kind === 'channel') {
     const channels = Array.from(new Set(items.map(i => i.channel_name).filter(Boolean))).sort();
-    bar.appendChild(el('span', { class: 'lbl' }, 'channel'));
+    bar.appendChild(el('span', { class: 'lbl' }, 'CHANNEL'));
     bar.appendChild(selectFilter(f, 'channel', channels, repaint));
   } else {
     const datasets = Array.from(new Set(items.map(i => i.dataset_name).filter(Boolean))).sort();
-    bar.appendChild(el('span', { class: 'lbl' }, 'dataset'));
+    bar.appendChild(el('span', { class: 'lbl' }, 'DATASET'));
     bar.appendChild(selectFilter(f, 'dataset', datasets, repaint));
   }
 
-  // model
   const models = Array.from(new Set(items.map(i => i.model).filter(Boolean))).sort();
-  bar.appendChild(el('span', { class: 'lbl' }, 'model'));
+  bar.appendChild(el('span', { class: 'lbl' }, 'MODEL'));
   bar.appendChild(selectFilter(f, 'model', models, repaint));
 
-  // effort (bench only)
   if (kind === 'bench') {
     const efforts = Array.from(new Set(items.map(i => i.effort).filter(Boolean))).sort();
     if (efforts.length > 0) {
-      bar.appendChild(el('span', { class: 'lbl' }, 'effort'));
+      bar.appendChild(el('span', { class: 'lbl' }, 'EFFORT'));
       bar.appendChild(selectFilter(f, 'effort', efforts, repaint));
     }
   }
 
-  // status
-  bar.appendChild(el('span', { class: 'lbl' }, 'status'));
+  bar.appendChild(el('span', { class: 'lbl' }, 'STATUS'));
   if (kind === 'channel') {
     bar.appendChild(selectFilter(f, 'status', ['pass', 'warn', 'fail'], repaint));
   } else {
@@ -97,8 +231,8 @@ function buildHistoryFilters(H, repaint, kind) {
   }
 
   bar.appendChild(el('span', { class: 'spacer' }));
-  bar.appendChild(el('span', { class: 'muted', style: { fontSize: '11px', fontFamily: 'var(--font-mono)' } },
-    H.filtered.length + ' / ' + H.items.length + ' 条'));
+  bar.appendChild(el('span', { class: 'hist-count' },
+    H.filtered.length + ' / ' + H.total + ' 条'));
 
   if (H.selected.size >= 2 && kind === 'channel') {
     bar.appendChild(btn('对比 (' + H.selected.size + ')', {
@@ -131,7 +265,7 @@ function buildChannelHistoryTable(H) {
       el('div', { class: 'glyph' }, '∅'),
       H.items.length === 0 ? '尚无历史记录' : '没有匹配的记录');
   }
-  const t = el('table', { class: 'table' });
+  const t = el('table', { class: 'table hist-table' });
   t.appendChild(el('thead', null, el('tr', null,
     el('th', { style: { width: '32px' } }, ''),
     el('th', { style: { width: '40px' } }, 'grade'),
@@ -192,6 +326,77 @@ function buildChannelHistoryTable(H) {
   return t;
 }
 
+function buildBenchHistoryTable(H) {
+  if (H.filtered.length === 0) {
+    return el('div', { class: 'empty' }, el('div', { class: 'glyph' }, '∅'), H.items.length === 0 ? '尚无历史记录' : '没有匹配的记录');
+  }
+  const t = el('table', { class: 'table hist-table' });
+  t.appendChild(el('thead', null, el('tr', null,
+    el('th', null, 'dataset'),
+    el('th', null, 'model'),
+    el('th', { style: { width: '60px' } }, 'effort'),
+    el('th', { style: { width: '65px' } }, 'thinking'),
+    el('th', { style: { width: '80px', textAlign: 'right' } }, 'score'),
+    el('th', { style: { width: '80px', textAlign: 'right' } }, 'pass rate'),
+    el('th', { style: { width: '90px', textAlign: 'right' } }, 'tasks'),
+    el('th', { style: { width: '70px', textAlign: 'right' } }, 'errors'),
+    el('th', { style: { width: '80px', textAlign: 'right' } }, 'elapsed'),
+    el('th', { style: { width: '120px' } }, 'when'),
+    el('th', { style: { width: '60px' } }, ''),
+  )));
+  const tb = el('tbody');
+  H.filtered.forEach(r => {
+    const tr = el('tr', { onclick: ev => {
+      if (ev.target.closest('.row-actions')) return;
+      location.hash = '#/bench/run/' + encodeURIComponent(r.id);
+    } });
+    tr.appendChild(el('td', { class: 'name-cell' }, r.dataset_name || '—'));
+    tr.appendChild(el('td', { class: 'mono' }, r.model || '—'));
+    tr.appendChild(el('td', null,
+      r.effort ? el('span', { class: 'itag itag-warn' }, r.effort) : el('span', { class: 'itag' }, 'default')));
+    tr.appendChild(el('td', null,
+      r.thinking_mode ? el('span', { class: 'itag itag-info' }, r.thinking_mode)
+        : r.thinking ? el('span', { class: 'itag itag-info' }, 'on')
+        : el('span', { class: 'itag' }, 'off')));
+    const scoreVal = r.score_total != null ? Math.round(r.score_total * 100) / 100 : null;
+    const passVal = r.pass_rate != null ? Math.round(r.pass_rate * 1000) / 10 : null;
+    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', fontWeight: 600 } },
+      scoreVal != null ? String(scoreVal) : '—'));
+    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right' } },
+      passVal != null ? passVal + '%' : '—'));
+    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right' } },
+      (r.task_completed || 0) + ' / ' + (r.task_total || 0)));
+    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', color: r.task_errors > 0 ? 'var(--bad-ink)' : 'var(--ink-3)' } }, r.task_errors || 0));
+    tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } }, fmtMs(r.elapsed_ms)));
+    tr.appendChild(el('td', { class: 'mono', style: { fontSize: '11px' } }, fmtTimeAgo(r.started_at),
+      el('div', { style: { fontSize: '10px', color: 'var(--ink-4)' } }, fmtTime(r.started_at))));
+    tr.appendChild(el('td', null, el('div', { class: 'row-actions' },
+      el('button', { class: 'btn btn-ghost btn-xs', title: '删除',
+        onclick: ev => { ev.stopPropagation(); deleteBenchHistoryConfirm(r); } }, mkIcon('trash', { size: 11 })),
+    )));
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  return t;
+}
+
+/* ─── Infinite scroll observer ─── */
+let _historyObserver = null;
+function observeLoadMore(sentinel, loadFn) {
+  if (_historyObserver) _historyObserver.disconnect();
+  _historyObserver = new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting) {
+      _historyObserver.disconnect();
+      loadFn();
+    }
+  }, { rootMargin: '200px' });
+  _historyObserver.observe(sentinel);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Actions: rename, delete
+ * ═══════════════════════════════════════════════════════════════════════ */
+
 async function renameChannelHistoryDialog(r) {
   const name = prompt('渠道名称:', r.channel_name || '');
   if (name == null) return;
@@ -213,7 +418,19 @@ async function deleteChannelHistoryConfirm(r) {
   } catch (e) { toast('删除失败: ' + e.message, 'bad'); }
 }
 
-/* ─── compare modal ─── */
+async function deleteBenchHistoryConfirm(r) {
+  if (!confirm('确定删除此条历史记录?')) return;
+  try {
+    await api('/api/intelligence/history/' + encodeURIComponent(r.id), { method: 'DELETE' });
+    toast('已删除', 'good');
+    renderBenchHistory();
+  } catch (e) { toast('删除失败: ' + e.message, 'bad'); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Compare modal
+ * ═══════════════════════════════════════════════════════════════════════ */
+
 async function openChannelCompare(ids) {
   const items = await Promise.all(ids.map(async id => {
     try { return await api('/api/channel/history/' + encodeURIComponent(id)); }
@@ -221,14 +438,12 @@ async function openChannelCompare(ids) {
   }));
   const reports = items.filter(Boolean);
 
-  // collect all check names
   const checkNames = new Set();
   reports.forEach(r => (r.checks || []).forEach(c => checkNames.add(c.name)));
   const allNames = Array.from(checkNames).sort();
 
   const body = el('div');
 
-  // header row of report identifiers
   const head = el('div', { style: { display: 'grid',
     gridTemplateColumns: '240px repeat(' + reports.length + ', 1fr)',
     gap: '1px', background: 'var(--line)', marginBottom: '8px',
@@ -251,7 +466,6 @@ async function openChannelCompare(ids) {
   });
   body.appendChild(head);
 
-  // diff toggle
   let onlyDiff = true;
   const repaint = () => {
     rowsWrap.innerHTML = '';
@@ -263,7 +477,7 @@ async function openChannelCompare(ids) {
         })
       : allNames;
     if (rows.length === 0) {
-      rowsWrap.appendChild(el('div', { class: 'empty' }, '所有 check 在这些渠道上结果一致 ✓'));
+      rowsWrap.appendChild(el('div', { class: 'empty' }, '所有 check 在这些渠道上结果一致'));
       return;
     }
     rows.forEach(name => {
@@ -314,115 +528,4 @@ async function openChannelCompare(ids) {
   repaint();
 
   openModal('对比 ' + reports.length + ' 条记录', body);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
- * Benchmark history list
- * ═══════════════════════════════════════════════════════════════════════ */
-
-async function renderBenchHistory() {
-  setCrumb([{ label: 'Benchmark', href: '#/bench' }, { cur: '历史' }],
-    el('div', { class: 'crumb-actions' },
-      btn('新建运行', { primary: true, icon: 'play', size: 'sm', onClick: () => location.hash = '#/bench' }),
-    ));
-  const v = $('#view');
-  v.innerHTML = '<div class="empty">加载中…</div>';
-  try {
-    const data = await api('/api/intelligence/history');
-    _historyState.bench.items = data.history || [];
-    paintBenchHistory();
-  } catch (e) {
-    v.innerHTML = '';
-    v.appendChild(el('div', { class: 'empty', style: { color: 'var(--bad-ink)' } },
-      el('div', { class: 'glyph' }, '×'), '加载失败: ' + esc(e.message)));
-  }
-}
-
-function paintBenchHistory() {
-  const H = _historyState.bench;
-  const f = H.filter;
-  H.filtered = H.items.filter(r => {
-    if (f.q) {
-      const s = ((r.dataset_name || '') + ' ' + (r.model || '') + ' ' + (r.effort || '')).toLowerCase();
-      if (!s.includes(f.q.toLowerCase())) return false;
-    }
-    if (f.dataset && (r.dataset_name || '') !== f.dataset) return false;
-    if (f.model   && (r.model || '')        !== f.model) return false;
-    if (f.effort  && (r.effort || '')       !== f.effort) return false;
-    if (f.status) {
-      const ok = (r.task_errors || 0) === 0;
-      if (f.status === 'ok' && !ok) return false;
-      if (f.status === 'has_errors' && ok) return false;
-    }
-    return true;
-  });
-
-  const v = $('#view'); v.innerHTML = '';
-  const panel = el('div', { class: 'panel' });
-  panel.appendChild(buildHistoryFilters(H, paintBenchHistory, 'bench'));
-  panel.appendChild(buildBenchHistoryTable(H));
-  v.appendChild(panel);
-}
-
-function buildBenchHistoryTable(H) {
-  if (H.filtered.length === 0) {
-    return el('div', { class: 'empty' }, el('div', { class: 'glyph' }, '∅'), H.items.length === 0 ? '尚无历史记录' : '没有匹配的记录');
-  }
-  const t = el('table', { class: 'table' });
-  t.appendChild(el('thead', null, el('tr', null,
-    el('th', null, 'dataset'),
-    el('th', null, 'model'),
-    el('th', { style: { width: '60px' } }, 'effort'),
-    el('th', { style: { width: '65px' } }, 'thinking'),
-    el('th', { style: { width: '80px', textAlign: 'right' } }, 'score'),
-    el('th', { style: { width: '80px', textAlign: 'right' } }, 'pass rate'),
-    el('th', { style: { width: '90px', textAlign: 'right' } }, 'tasks'),
-    el('th', { style: { width: '70px', textAlign: 'right' } }, 'errors'),
-    el('th', { style: { width: '80px', textAlign: 'right' } }, 'elapsed'),
-    el('th', { style: { width: '120px' } }, 'when'),
-    el('th', { style: { width: '60px' } }, ''),
-  )));
-  const tb = el('tbody');
-  H.filtered.forEach(r => {
-    const tr = el('tr', { onclick: ev => {
-      if (ev.target.closest('.row-actions')) return;
-      location.hash = '#/bench/run/' + encodeURIComponent(r.id);
-    } });
-    tr.appendChild(el('td', { class: 'name-cell' }, r.dataset_name || '—'));
-    tr.appendChild(el('td', { class: 'mono' }, r.model || '—'));
-    tr.appendChild(el('td', null,
-      r.effort ? el('span', { class: 'itag itag-warn' }, r.effort) : el('span', { class: 'itag' }, 'default')));
-    tr.appendChild(el('td', null,
-      r.thinking_mode ? el('span', { class: 'itag itag-info' }, r.thinking_mode)
-        : r.thinking ? el('span', { class: 'itag itag-info' }, 'on')
-        : el('span', { class: 'itag' }, 'off')));
-    const scoreVal = r.score_total != null ? Math.round(r.score_total * 100) / 100 : null;
-    const passVal = r.pass_rate != null ? Math.round(r.pass_rate * 1000) / 10 : null;
-    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', fontWeight: 600 } },
-      scoreVal != null ? String(scoreVal) : '—'));
-    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right' } },
-      passVal != null ? passVal + '%' : '—'));
-    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right' } },
-      (r.task_completed || 0) + ' / ' + (r.task_total || 0)));
-    tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', color: r.task_errors > 0 ? 'var(--bad-ink)' : 'var(--ink-3)' } }, r.task_errors || 0));
-    tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } }, fmtMs(r.elapsed_ms)));
-    tr.appendChild(el('td', { class: 'mono', style: { fontSize: '11px' } }, fmtTimeAgo(r.started_at),
-      el('div', { style: { fontSize: '10px', color: 'var(--ink-4)' } }, fmtTime(r.started_at))));
-    tr.appendChild(el('td', null, el('div', { class: 'row-actions' },
-      el('button', { class: 'btn btn-ghost btn-xs', title: '删除',
-        onclick: ev => { ev.stopPropagation(); deleteBenchHistoryConfirm(r); } }, mkIcon('trash', { size: 11 })),
-    )));
-    tb.appendChild(tr);
-  });
-  t.appendChild(tb);
-  return t;
-}
-
-async function deleteBenchHistoryConfirm(r) {
-  if (!confirm('确定删除此条历史记录?')) return;
-  try {
-    await api('/api/intelligence/history/' + encodeURIComponent(r.id), { method: 'DELETE' });
-    toast('已删除', 'good');
-    renderBenchHistory();
-  } catch (e) { toast('删除失败: ' + e.message, 'bad'); }
 }
