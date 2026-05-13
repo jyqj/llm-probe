@@ -59,7 +59,7 @@ function applyChannelFilter(H) {
     if (f.channel && (r.channel_name || '') !== f.channel) return false;
     if (f.model   && (r.model || '')        !== f.model) return false;
     if (f.status) {
-      const s = (r.score && r.score.grade_color) || '';
+      const s = r.grade_color || '';
       if (f.status === 'pass' && !['green', 'blue'].includes(s)) return false;
       if (f.status === 'warn' && !['yellow', 'orange'].includes(s)) return false;
       if (f.status === 'fail' && s !== 'red') return false;
@@ -280,11 +280,11 @@ function buildChannelHistoryTable(H) {
   const tb = el('tbody');
   H.filtered.forEach(r => {
     const isSelected = H.selected.has(r.id);
-    const passed = (r.checks || []).filter(c => c.pass).length;
-    const total  = (r.checks || []).length;
-    const score  = r.score ? Math.round(r.score.total_score) : null;
-    const grade  = r.score ? r.score.grade : '·';
-    const gc     = r.score ? gradeColor(r.score.grade_color) : 'var(--ink-3)';
+    const passed = r.checks_passed || 0;
+    const total  = r.checks_total || 0;
+    const score  = r.total_score != null ? Math.round(r.total_score) : null;
+    const grade  = r.grade || '·';
+    const gc     = r.grade_color ? gradeColor(r.grade_color) : 'var(--ink-3)';
     const tr = el('tr', { class: isSelected ? 'selected' : null,
       onclick: ev => {
         if (ev.target.closest('.row-actions, input[type=checkbox]')) return;

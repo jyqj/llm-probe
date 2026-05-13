@@ -145,6 +145,66 @@ func (s *Store) trimHistoryLocked() {
 	}
 }
 
+// HistorySummary is a lightweight projection of Report for list views.
+type HistorySummary struct {
+	ID          string  `json:"id"`
+	RunGroup    string  `json:"run_group,omitempty"`
+	ChannelName string  `json:"channel_name,omitempty"`
+	Target      string  `json:"target"`
+	Model       string  `json:"model"`
+	Timestamp   string  `json:"timestamp"`
+	ElapsedMs   int64   `json:"elapsed_ms"`
+	TotalScore  float64 `json:"total_score"`
+	Grade       string  `json:"grade"`
+	GradeColor  string  `json:"grade_color"`
+	VerdictColor string `json:"verdict_color"`
+	VerdictLabel string `json:"verdict_label"`
+	ChecksTotal int     `json:"checks_total"`
+	ChecksPassed int    `json:"checks_passed"`
+	RunProfile  string  `json:"run_profile,omitempty"`
+}
+
+func summarizeReport(r *Report) HistorySummary {
+	s := HistorySummary{
+		ID:          r.ID,
+		RunGroup:    r.RunGroup,
+		ChannelName: r.ChannelName,
+		Target:      r.Target,
+		Model:       r.Model,
+		Timestamp:   r.Timestamp.Format(time.RFC3339Nano),
+		ElapsedMs:   r.ElapsedMs,
+		RunProfile:  r.RunProfile,
+	}
+	if r.Score != nil {
+		s.TotalScore = r.Score.TotalScore
+		s.Grade = r.Score.Grade
+		s.GradeColor = r.Score.GradeColor
+		s.VerdictColor = r.Score.VerdictColor
+		s.VerdictLabel = r.Score.VerdictLabel
+		s.ChecksTotal = r.Score.ChecksTotal
+		s.ChecksPassed = r.Score.ChecksPassed
+	} else {
+		for _, c := range r.Checks {
+			s.ChecksTotal++
+			if c.Pass {
+				s.ChecksPassed++
+			}
+		}
+	}
+	return s
+}
+
+// ListHistorySummary returns lightweight summaries in reverse chronological order.
+func (s *Store) ListHistorySummary() []HistorySummary {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]HistorySummary, len(s.history))
+	for i, r := range s.history {
+		out[len(s.history)-1-i] = summarizeReport(r)
+	}
+	return out
+}
+
 // ListHistory returns all history records in reverse chronological order.
 func (s *Store) ListHistory() []*Report {
 	s.mu.RLock()

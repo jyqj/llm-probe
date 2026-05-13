@@ -172,7 +172,7 @@ func (a *API) handleChannelHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	all := a.channelStore.ListHistory()
+	all := a.channelStore.ListHistorySummary()
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	total := len(all)
