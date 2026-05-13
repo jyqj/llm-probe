@@ -54,17 +54,7 @@ function buildBenchConfigBody() {
         oninput: e => { B.targetKey = e.target.value; },
         style: { width: '100%', background: 'transparent', border: 'none', padding: '0' }
       })),
-      buildField('MODEL', el('input', {
-        class: 'mono', placeholder: 'claude-opus-4-6', value: B.model,
-        oninput: e => { B.model = e.target.value.trim(); rebuildRunConfig(); },
-        list: 'benchModelList',
-        style: { width: '100%', background: 'transparent', border: 'none', padding: '0' }
-      })),
-      (() => {
-        const dl = el('datalist', { id: 'benchModelList' });
-        ['claude-opus-4-6', 'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'].forEach(m => dl.appendChild(el('option', { value: m })));
-        return dl;
-      })(),
+      buildField('MODEL', buildBenchModelChips()),
     ),
   ));
 
@@ -123,69 +113,74 @@ function buildBenchConfigBody() {
   return wrap;
 }
 
-/* ─── Inline run config (replaces drawer) ─── */
+/* ─── Model chip selector (like channel page) ─── */
+function buildBenchModelChips() {
+  const ALL = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7', 'claude-opus-4-5', 'claude-haiku-4-5'];
+  const B = State.bench;
+  const wrap = el('div', { class: 'chip-set' });
+  ALL.forEach(m => {
+    const active = B.model === m;
+    const lbl = el('label', { class: 'chip' });
+    const rb = el('input', { type: 'radio', name: 'bench-model', value: m });
+    if (active) rb.checked = true;
+    rb.addEventListener('change', () => {
+      B.model = m;
+      rebuildRunConfig();
+    });
+    lbl.appendChild(rb);
+    lbl.appendChild(el('span', { class: 'led' }));
+    lbl.appendChild(document.createTextNode(m));
+    wrap.appendChild(lbl);
+  });
+  return wrap;
+}
+
+/* ─── Inline run config ─── */
 function buildRunConfigContent() {
   const B = State.bench;
-  const effectiveModel = B.model;
+  const model = B.model;
   const frag = el('div');
+  const levels = intensityLevelsFor(model);
 
-  // Thinking mode
-  const tmodes = thinkingModesFor(effectiveModel);
-  if (!B.thinkingMode || !tmodes.includes(B.thinkingMode)) {
-    B.thinkingMode = tmodes.includes('adaptive') ? 'adaptive' : tmodes[0];
-    B.thinking = B.thinkingMode !== 'off';
+  // Normalize current intensity
+  if (!B.intensity || !levels.includes(B.intensity)) {
+    B.intensity = levels.includes('high') ? 'high' : levels[levels.length - 1];
   }
-  frag.appendChild(buildField('THINKING MODE', (() => {
-    const seg = el('div', { class: 'seg', style: { width: 'fit-content' } });
-    tmodes.forEach(v => {
-      const lbl = v === 'off' ? 'OFF' : v === 'adaptive' ? 'Adaptive' : v === 'adaptive_only' ? 'Adaptive' : 'Enabled';
-      seg.appendChild(el('button', { class: B.thinkingMode === v ? 'active' : '',
-        onclick: () => { B.thinkingMode = v; B.thinking = v !== 'off'; rebuildRunConfig(); } }, lbl));
+
+  // Mode: single vs batch
+  const modeSeg = el('div', { class: 'seg', style: { width: 'fit-content' } });
+  modeSeg.appendChild(el('button', { class: !B.multiIntensity ? 'active' : '',
+    onclick: () => { B.multiIntensity = false; rebuildRunConfig(); } }, '单个'));
+  modeSeg.appendChild(el('button', { class: B.multiIntensity ? 'active' : '',
+    onclick: () => { B.multiIntensity = true; if (!B.selectedIntensities.length) B.selectedIntensities = [...levels]; rebuildRunConfig(); } }, '批量对比'));
+  frag.appendChild(buildField('RUN MODE', modeSeg));
+
+  // Intensity level(s)
+  const LEVEL_LABEL = { off: 'OFF', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'X-High', max: 'Max', enabled: 'Enabled', adaptive: 'Adaptive' };
+
+  if (B.multiIntensity) {
+    B.selectedIntensities = B.selectedIntensities.filter(e => levels.includes(e));
+    if (!B.selectedIntensities.length) B.selectedIntensities = [...levels];
+    const checkWrap = el('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } });
+    levels.forEach(lv => {
+      const checked = B.selectedIntensities.includes(lv);
+      checkWrap.appendChild(el('label', { style: { display: 'flex', gap: '4px', alignItems: 'center', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--font-mono)' } },
+        el('input', { type: 'checkbox', checked: checked ? '' : null,
+          onchange: () => {
+            if (checked) B.selectedIntensities = B.selectedIntensities.filter(e => e !== lv);
+            else B.selectedIntensities.push(lv);
+            rebuildRunConfig();
+          } }),
+        LEVEL_LABEL[lv] || lv));
     });
-    return seg;
-  })()));
-
-  // Effort level
-  const elevels = effortLevelsFor(effectiveModel);
-  if (elevels.length > 0) {
-    const modeSeg = el('div', { class: 'seg', style: { width: 'fit-content' } });
-    modeSeg.appendChild(el('button', { class: !B.multiEffort ? 'active' : '',
-      onclick: () => { B.multiEffort = false; rebuildRunConfig(); } }, '单个'));
-    modeSeg.appendChild(el('button', { class: B.multiEffort ? 'active' : '',
-      onclick: () => { B.multiEffort = true; if (!B.selectedEfforts.length) B.selectedEfforts = [...elevels]; rebuildRunConfig(); } }, '批量对比'));
-    frag.appendChild(buildField('EFFORT MODE', modeSeg));
-
-    if (B.multiEffort) {
-      B.selectedEfforts = B.selectedEfforts.filter(e => elevels.includes(e));
-      if (!B.selectedEfforts.length) B.selectedEfforts = [...elevels];
-      const checkWrap = el('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } });
-      elevels.forEach(lv => {
-        const checked = B.selectedEfforts.includes(lv);
-        checkWrap.appendChild(el('label', { style: { display: 'flex', gap: '4px', alignItems: 'center', cursor: 'pointer', fontSize: '12px', fontFamily: 'var(--font-mono)' } },
-          el('input', { type: 'checkbox', checked: checked ? '' : null,
-            onchange: () => {
-              if (checked) B.selectedEfforts = B.selectedEfforts.filter(e => e !== lv);
-              else B.selectedEfforts.push(lv);
-              rebuildRunConfig();
-            } }),
-          lv));
-      });
-      frag.appendChild(buildField('EFFORT LEVELS (' + B.selectedEfforts.length + '/' + elevels.length + ')', checkWrap));
-    } else {
-      if (B.effort && !elevels.includes(B.effort)) B.effort = '';
-      const allOpts = [''].concat(elevels);
-      frag.appendChild(buildField('EFFORT', (() => {
-        const effortSeg = el('div', { class: 'seg', style: { width: 'fit-content' } });
-        allOpts.forEach(v => {
-          effortSeg.appendChild(el('button', { class: B.effort === v ? 'active' : '',
-            onclick: () => { B.effort = v; rebuildRunConfig(); } }, v || 'default'));
-        });
-        return effortSeg;
-      })()));
-    }
+    frag.appendChild(buildField('思考力度 (' + B.selectedIntensities.length + '/' + levels.length + ')', checkWrap));
   } else {
-    B.effort = ''; B.multiEffort = false;
-    frag.appendChild(buildField('EFFORT', el('span', { class: 'muted', style: { fontSize: '11px' } }, '此模型不支持 effort')));
+    const seg = el('div', { class: 'seg', style: { width: 'fit-content', flexWrap: 'wrap' } });
+    levels.forEach(lv => {
+      seg.appendChild(el('button', { class: B.intensity === lv ? 'active' : '',
+        onclick: () => { B.intensity = lv; rebuildRunConfig(); } }, LEVEL_LABEL[lv] || lv));
+    });
+    frag.appendChild(buildField('思考力度', seg));
   }
 
   // Scope
@@ -336,18 +331,19 @@ async function kickoffBenchRun() {
   if (!B.targetKey)  { toast('请填写 API Key', 'bad'); return; }
   if (!State.currentDataset) { toast('请选择数据集', 'bad'); return; }
 
-  if (B.multiEffort && B.selectedEfforts.length > 1) {
-    kickoffMultiEffortRun();
+  if (B.multiIntensity && B.selectedIntensities.length > 1) {
+    kickoffMultiIntensityRun();
     return;
   }
 
+  const params = intensityToParams(B.model, B.intensity);
   const tempId = 'live_' + Date.now().toString(36);
   const payload = {
     target_base: B.targetBase, target_key: B.targetKey,
-    model: B.runModel || B.model,
-    concurrency: B.concurrency, thinking: B.thinking,
-    effort: B.effort || undefined,
-    thinking_mode: B.thinkingMode !== 'off' ? B.thinkingMode : undefined,
+    model: B.model,
+    concurrency: B.concurrency, thinking: params.thinking,
+    effort: params.effort || undefined,
+    thinking_mode: params.thinkingMode !== 'off' ? params.thinkingMode : undefined,
   };
   if (B.scope === 'custom') {
     if (B.lang) payload.language = B.lang;
@@ -361,7 +357,7 @@ async function kickoffBenchRun() {
     payload,
     dataset: State.currentDataset,
     target: B.targetBase,
-    model: payload.model,
+    model: B.model,
     startedAt: Date.now(),
     totalTasks: 0,
     completedTasks: 0,
@@ -370,9 +366,9 @@ async function kickoffBenchRun() {
     aborter: null,
     finalReport: null,
     error: null,
-    thinking: B.thinking,
-    effort: B.effort || '',
-    thinkingMode: B.thinkingMode || '',
+    thinking: params.thinking,
+    effort: params.effort || '',
+    thinkingMode: params.thinkingMode || '',
   };
   location.hash = '#/bench/run/' + tempId;
   runBenchStream(tempId, payload).catch(err => {
@@ -382,38 +378,39 @@ async function kickoffBenchRun() {
   });
 }
 
-/* ─── multi-effort sweep ─── */
-async function kickoffMultiEffortRun() {
+/* ─── multi-intensity sweep ─── */
+async function kickoffMultiIntensityRun() {
   const B = State.bench;
-  const efforts = [...B.selectedEfforts];
+  const intensities = [...B.selectedIntensities];
   const batchId = 'batch_' + Date.now().toString(36);
 
   State.liveRuns[batchId] = {
     kind: 'bench-batch',
     state: 'running',
-    efforts,
+    efforts: intensities,
     dataset: State.currentDataset,
     target: B.targetBase,
-    model: B.runModel || B.model,
+    model: B.model,
     startedAt: Date.now(),
     subRuns: {},
     completedEfforts: 0,
-    totalEfforts: efforts.length,
-    thinking: B.thinking,
-    thinkingMode: B.thinkingMode || '',
+    totalEfforts: intensities.length,
+    thinking: true,
+    thinkingMode: '',
     error: null,
   };
   location.hash = '#/bench/run/' + batchId;
 
-  for (const effort of efforts) {
+  for (const intensity of intensities) {
     if (State.liveRuns[batchId].state === 'cancelled') break;
-    const subId = batchId + '_' + effort;
+    const params = intensityToParams(B.model, intensity);
+    const subId = batchId + '_' + intensity;
     const payload = {
       target_base: B.targetBase, target_key: B.targetKey,
-      model: B.runModel || B.model,
-      concurrency: B.concurrency, thinking: B.thinking,
-      effort: effort,
-      thinking_mode: B.thinkingMode !== 'off' ? B.thinkingMode : undefined,
+      model: B.model,
+      concurrency: B.concurrency, thinking: params.thinking,
+      effort: params.effort || undefined,
+      thinking_mode: params.thinkingMode !== 'off' ? params.thinkingMode : undefined,
     };
     if (B.scope === 'custom') {
       if (B.lang) payload.language = B.lang;
@@ -421,17 +418,17 @@ async function kickoffMultiEffortRun() {
       if (B.limit > 0) payload.limit = B.limit;
     }
 
-    State.liveRuns[batchId].subRuns[effort] = {
-      subId, state: 'running', payload, effort,
+    State.liveRuns[batchId].subRuns[intensity] = {
+      subId, state: 'running', payload, effort: intensity,
       totalTasks: 0, completedTasks: 0, errorTasks: 0,
       results: [], finalReport: null, error: null,
     };
     maybeRerenderBench(batchId);
 
     try {
-      await runBatchSubStream(batchId, effort, subId, payload);
+      await runBatchSubStream(batchId, intensity, subId, payload);
     } catch (err) {
-      const sub = State.liveRuns[batchId].subRuns[effort];
+      const sub = State.liveRuns[batchId].subRuns[intensity];
       if (sub) { sub.state = 'error'; sub.error = err.message || String(err); }
     }
     State.liveRuns[batchId].completedEfforts++;
@@ -797,13 +794,16 @@ function openBenchResultModal(r) {
 function rerunBench(runId) {
   const run = State.liveRuns[runId]; if (!run) return;
   if (run.payload) {
+    const p = run.payload;
+    let intensity = 'off';
+    if (p.effort) intensity = p.effort;
+    else if (p.thinking) intensity = p.thinking_mode || 'adaptive';
     Object.assign(State.bench, {
-      targetBase: run.payload.target_base, targetKey: run.payload.target_key,
-      model: run.payload.model, concurrency: run.payload.concurrency,
-      thinking: run.payload.thinking,
-      effort: run.payload.effort || '', thinkingMode: run.payload.thinking_mode || '',
-      lang: run.payload.language || '', category: run.payload.category || '',
-      limit: run.payload.limit || 0, scope: (run.payload.language || run.payload.category || run.payload.limit) ? 'custom' : 'all',
+      targetBase: p.target_base, targetKey: p.target_key,
+      model: p.model, concurrency: p.concurrency,
+      intensity,
+      lang: p.language || '', category: p.category || '',
+      limit: p.limit || 0, scope: (p.language || p.category || p.limit) ? 'custom' : 'all',
     });
   }
   if (run.dataset) State.currentDataset = run.dataset;

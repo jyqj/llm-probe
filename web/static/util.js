@@ -12,7 +12,8 @@ const State = {
     targetBase: '', targetKey: '', model: 'claude-opus-4-6',
     concurrency: 5, thinking: false, effort: '', thinkingMode: '',
     scope: 'custom', lang: '', category: '', limit: 0, runModel: '',
-    multiEffort: false, selectedEfforts: [],
+    intensity: 'high',
+    multiIntensity: false, selectedIntensities: [],
   },
   // live runs (not yet persisted to history)
   liveRuns: Object.create(null),   // run_id → {state, reports, events, sse}
@@ -307,4 +308,19 @@ function thinkingModesFor(model) {
 }
 function effortLevelsFor(model) {
   return getModelCaps(model).effort;
+}
+
+function intensityLevelsFor(model) {
+  const c = getModelCaps(model);
+  if (!c.thinking && c.effort.length === 0) return ['off'];
+  if (c.effort.length > 0) return ['off', ...c.effort];
+  return ['off', c.thinkingMode === 'enabled' ? 'enabled' : 'adaptive'];
+}
+
+function intensityToParams(model, level) {
+  if (level === 'off') return { thinking: false, thinkingMode: 'off', effort: '' };
+  const c = getModelCaps(model);
+  if (level === 'enabled') return { thinking: true, thinkingMode: 'enabled', effort: '' };
+  if (level === 'adaptive') return { thinking: true, thinkingMode: c.thinkingMode === 'adaptive_only' ? 'adaptive_only' : 'adaptive', effort: '' };
+  return { thinking: true, thinkingMode: c.thinkingMode === 'adaptive_only' ? 'adaptive_only' : c.thinkingMode, effort: level };
 }
