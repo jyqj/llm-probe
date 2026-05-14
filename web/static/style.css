@@ -581,7 +581,7 @@ a:hover { color: var(--accent-2); }
 .probe-row:last-child { border-bottom: none; }
 .probe-head {
   display: grid;
-  grid-template-columns: 20px 1fr 100px 80px auto 20px;
+  grid-template-columns: 20px 1fr 100px 80px 70px 20px;
   align-items: center;
   gap: 12px;
   padding: 8px 14px;
@@ -600,13 +600,19 @@ a:hover { color: var(--accent-2); }
 .probe-head .caret { color: var(--ink-4); transition: transform .15s; text-align: center; }
 .probe-row.open .probe-head .caret { transform: rotate(90deg); }
 
-.probe-head-actions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; min-width: 0; }
-.probe-retry-btn { opacity: 0; transition: opacity .15s; }
-.probe-head:hover .probe-retry-btn { opacity: 1; }
-.probe-retrying { font-size: 10px; color: var(--accent); font-family: var(--font-mono); animation: pulse 1.2s infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
 .probe-body { padding: 0 14px 12px 46px; display: none; }
 .probe-row.open .probe-body { display: block; }
+
+.check-item {
+  border-radius: var(--r-sm);
+  scroll-margin-top: 100px;
+}
+.check-item[data-check] .check-row {
+  border: 1px solid transparent;
+}
+.check-item:hover .check-row { background: var(--panel); border-color: var(--line-soft); }
+.check-item.highlight .check-row { background: var(--accent-soft); border-color: var(--accent-line); }
 
 .check-row {
   display: grid;
@@ -616,11 +622,7 @@ a:hover { color: var(--accent-2); }
   padding: 6px 8px;
   font-size: var(--t-sm);
   border-radius: var(--r-sm);
-  border: 1px solid transparent;
-  scroll-margin-top: 100px;
 }
-.check-row:hover { background: var(--panel); border-color: var(--line-soft); }
-.check-row.highlight { background: var(--accent-soft); border-color: var(--accent-line); }
 .check-row .led-dot { margin-top: 5px; }
 .check-row .body { min-width: 0; }
 .check-row .name { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-2); }
@@ -637,7 +639,13 @@ a:hover { color: var(--accent-2); }
 .check-row .expect .v.act { color: var(--bad-ink); }
 .check-row .fix { font-size: 10px; font-family: var(--font-mono); color: var(--warn-ink); margin-top: 4px; }
 .check-row .actions { display: none; gap: 4px; align-items: center; }
-.check-row:hover .actions { display: flex; }
+.check-item:hover .check-row .actions { display: flex; }
+
+.check-exchange {
+  display: none;
+  padding: 0 8px 8px 26px;
+}
+.check-exchange.open { display: block; }
 
 .exchange-strip {
   display: flex; flex-direction: column; gap: 1px;

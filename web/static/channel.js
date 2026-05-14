@@ -980,24 +980,6 @@ function renderProbeRow(probe, anchor, ctx) {
 
   const dot = el('span', { class: 'led-dot ' + (isRunning || isRetrying ? 'run' : total === 0 ? 'pending' : allPass ? 'pass' : 'fail') });
 
-  const headActions = el('div', { class: 'probe-head-actions' });
-
-  // retry button (only for completed probes with context)
-  if (ctx && probe.state === 'done' && !isRetrying) {
-    const retryBtn = el('button', {
-      class: 'btn btn-ghost btn-xs probe-retry-btn',
-      title: '重试此探针',
-      onclick: ev => {
-        ev.stopPropagation();
-        retryProbe(ctx.runId, ctx.model, probe.probe_id, ctx.run);
-      },
-    }, mkIcon('refresh', { size: 12 }));
-    headActions.appendChild(retryBtn);
-  }
-  if (isRetrying) {
-    headActions.appendChild(el('span', { class: 'probe-retrying' }, '重试中…'));
-  }
-
   const head = el('div', { class: 'probe-head' },
     dot,
     el('div', { class: 'name' }, probe.label || probe.probe_id,
@@ -1005,43 +987,27 @@ function renderProbeRow(probe, anchor, ctx) {
     el('div', { class: 'checks-count ' + (total === 0 ? '' : allPass ? 'allpass' : 'hasfail') },
       isRunning || isRetrying ? '…' : (passed + '/' + total)),
     el('div', { class: 'latency' }, probe.latency_ms != null ? fmtMs(probe.latency_ms) : (isRunning ? '·' : '—')),
-    headActions,
+    el('div'),
     el('span', { class: 'caret' }, '›'),
   );
-  head.onclick = () => {
-    const opening = !row.classList.contains('open');
-    row.classList.toggle('open');
-    if (opening) maybeLoadExchanges(row, probe, ctx);
-  };
+  head.onclick = () => row.classList.toggle('open');
 
   const body = el('div', { class: 'probe-body' });
 
-  // exchange container (lazy loaded for historical, inline for live)
-  const exContainer = el('div', { class: 'exchange-strip' });
-  if (probe.exchanges && probe.exchanges.length) {
-    renderExchanges(exContainer, probe.exchanges);
-    probe._exchangesLoaded = true;
-  }
-  body.appendChild(exContainer);
-
-  // checks
+  // checks — each check gets its own retry + exchange viewer
   checks.forEach(c => {
     if (_checkFilter === 'pass' && !c.pass) return;
     if (_checkFilter === 'fail' && c.pass) return;
-    body.appendChild(renderCheckRow(c, probe));
+    body.appendChild(renderCheckRow(c, probe, ctx));
   });
 
   const row = el('div', { class: 'probe-row' + ((anchor && checks.some(c => c.name === anchor)) || hasFail ? ' open' : ''),
     'data-probe': probe.probe_id });
   row.appendChild(head); row.appendChild(body);
-
-  // auto-load exchanges if initially open
-  if (row.classList.contains('open')) {
-    setTimeout(() => maybeLoadExchanges(row, probe, ctx), 0);
-  }
   return row;
 }
 
+/* ─── Exchange rendering ─── */
 function renderExchanges(container, exchanges) {
   container.innerHTML = '';
   exchanges.forEach((ex, i) => {
@@ -1049,53 +1015,42 @@ function renderExchanges(container, exchanges) {
     let respStr = '(not captured)';
     try { reqStr = ex.request ? JSON.stringify(JSON.parse(ex.request), null, 2) : reqStr; } catch { reqStr = ex.request; }
     try { respStr = ex.response ? JSON.stringify(JSON.parse(ex.response), null, 2) : respStr; } catch { respStr = ex.response; }
-    container.appendChild(el('details', { class: 'ex-block' },
+    container.appendChild(el('details', { class: 'ex-block', open: exchanges.length === 1 ? true : undefined },
       el('summary', null,
         el('span', null, 'Request #' + (i + 1)),
-        el('span', { class: 'status' }, (ex.status || 200) + ''),
+        el('span', { class: 'status' }, 'HTTP ' + (ex.status || 200)),
       ),
       el('pre', null, reqStr),
     ));
-    container.appendChild(el('details', { class: 'ex-block' },
+    container.appendChild(el('details', { class: 'ex-block', open: exchanges.length === 1 ? true : undefined },
       el('summary', null, el('span', null, 'Response #' + (i + 1))),
       el('pre', null, respStr),
     ));
   });
 }
 
-async function maybeLoadExchanges(row, probe, ctx) {
-  if (!ctx || probe._exchangesLoaded || probe._exchangesLoading) return;
-  if (probe.exchanges && probe.exchanges.length) { probe._exchangesLoaded = true; return; }
-  if (!ctx.run || !ctx.run.historical) return;
-
-  const exContainer = row.querySelector('.exchange-strip');
-  if (!exContainer) return;
+async function loadProbeExchanges(probe, ctx) {
+  if (probe._exchangesLoaded || probe._exchangesLoading) return probe.exchanges || [];
+  if (probe.exchanges && probe.exchanges.length) { probe._exchangesLoaded = true; return probe.exchanges; }
+  if (!ctx || !ctx.run || !ctx.run.historical) return probe.exchanges || [];
 
   probe._exchangesLoading = true;
-  exContainer.innerHTML = '';
-  exContainer.appendChild(el('div', { class: 'ex-loading' }, '加载请求/响应…'));
-
   try {
     const reportId = ctx.run.finalReports && ctx.run.finalReports.length
-      ? ctx.run.finalReports.find(r => r.model === ctx.model)?.id || ctx.runId
+      ? (ctx.run.finalReports.find(r => r.model === ctx.model) || {}).id || ctx.runId
       : ctx.runId;
     const data = await api('/api/channel/history/' + encodeURIComponent(reportId) + '/probe/' + encodeURIComponent(probe.probe_id));
-    if (data.exchanges && data.exchanges.length) {
-      probe.exchanges = data.exchanges;
-      renderExchanges(exContainer, data.exchanges);
-    } else {
-      exContainer.innerHTML = '';
-      exContainer.appendChild(el('div', { class: 'ex-empty' }, '无请求/响应数据'));
-    }
+    probe.exchanges = data.exchanges || [];
     probe._exchangesLoaded = true;
+    return probe.exchanges;
   } catch (e) {
-    exContainer.innerHTML = '';
-    exContainer.appendChild(el('div', { class: 'ex-empty' }, '加载失败: ' + e.message));
+    throw e;
   } finally {
     probe._exchangesLoading = false;
   }
 }
 
+/* ─── Check-level retry ─── */
 async function retryProbe(runId, model, probeId, run) {
   const targetKey = (run && run.payload && run.payload.target_key) || State.channel.targetKey;
   if (!targetKey) {
@@ -1119,18 +1074,12 @@ async function retryProbe(runId, model, probeId, run) {
       body: JSON.stringify({ target_key: targetKey }),
     });
 
-    // Update probe in run state
     if (data.probe) {
       pm.probes[probeId] = Object.assign({}, data.probe, { state: 'done', _exchangesLoaded: true });
     }
-    // Update report score
-    if (pm.report && data.score) {
-      pm.report.score = data.score;
-    }
-    if (pm.report && data.checks) {
-      pm.report.checks = data.checks;
-    }
-    toast('探针 ' + probeId + ' 重试完成', 'good');
+    if (pm.report && data.score) pm.report.score = data.score;
+    if (pm.report && data.checks) pm.report.checks = data.checks;
+    toast(probeId + ' 重试完成', 'good');
   } catch (e) {
     toast('重试失败: ' + e.message, 'bad');
   } finally {
@@ -1140,7 +1089,7 @@ async function retryProbe(runId, model, probeId, run) {
   }
 }
 
-function renderCheckRow(c, probe) {
+function renderCheckRow(c, probe, ctx) {
   const body = el('div', { class: 'body' });
   const name = el('div', { class: 'name' });
   if (c.label) name.appendChild(el('span', { class: 'label' }, c.label));
@@ -1156,6 +1105,21 @@ function renderCheckRow(c, probe) {
   if (!c.pass && c.fix) body.appendChild(el('div', { class: 'fix' }, 'fix · ' + c.fix));
 
   const actions = el('div', { class: 'actions' });
+
+  // retry this check (re-runs its parent probe)
+  if (ctx && probe.state === 'done' && !probe._retrying) {
+    actions.appendChild(el('button', { class: 'btn btn-ghost btn-xs',
+      title: '重试 (重跑 ' + probe.probe_id + ')',
+      onclick: ev => { ev.stopPropagation(); retryProbe(ctx.runId, ctx.model, probe.probe_id, ctx.run); },
+    }, mkIcon('refresh', { size: 11 })));
+  }
+
+  // view exchange (request/response) for this check's parent probe
+  actions.appendChild(el('button', { class: 'btn btn-ghost btn-xs',
+    title: '查看请求/响应',
+    onclick: ev => { ev.stopPropagation(); toggleCheckExchange(item, probe, ctx); },
+  }, mkIcon('code', { size: 11 })));
+
   actions.appendChild(el('button', { class: 'btn btn-ghost btn-xs',
     title: '深链',
     onclick: ev => {
@@ -1169,11 +1133,56 @@ function renderCheckRow(c, probe) {
     onclick: ev => { ev.stopPropagation(); copyCheckMd(c, probe); },
   }, mkIcon('copy', { size: 11 })));
 
-  return el('div', { class: 'check-row', 'data-check': c.name },
-    el('span', { class: 'led-dot ' + (c.pass ? 'pass' : 'fail') }),
-    body,
-    actions,
+  // expandable exchange panel (hidden by default)
+  const exPanel = el('div', { class: 'check-exchange' });
+
+  const item = el('div', { class: 'check-item', 'data-check': c.name },
+    el('div', { class: 'check-row' },
+      el('span', { class: 'led-dot ' + (c.pass ? 'pass' : 'fail') }),
+      body,
+      actions,
+    ),
+    exPanel,
   );
+  return item;
+}
+
+async function toggleCheckExchange(item, probe, ctx) {
+  const panel = item.querySelector('.check-exchange');
+  if (!panel) return;
+
+  // toggle off
+  if (panel.classList.contains('open')) {
+    panel.classList.remove('open');
+    return;
+  }
+
+  panel.classList.add('open');
+
+  // already rendered
+  if (panel.dataset.loaded) return;
+
+  panel.innerHTML = '';
+  panel.appendChild(el('div', { class: 'ex-loading' }, '加载请求/响应…'));
+
+  try {
+    let exchanges = probe.exchanges;
+    if (!exchanges || !exchanges.length) {
+      exchanges = await loadProbeExchanges(probe, ctx);
+    }
+    panel.innerHTML = '';
+    if (exchanges && exchanges.length) {
+      const strip = el('div', { class: 'exchange-strip' });
+      renderExchanges(strip, exchanges);
+      panel.appendChild(strip);
+    } else {
+      panel.appendChild(el('div', { class: 'ex-empty' }, '无请求/响应数据'));
+    }
+    panel.dataset.loaded = '1';
+  } catch (e) {
+    panel.innerHTML = '';
+    panel.appendChild(el('div', { class: 'ex-empty' }, '加载失败: ' + e.message));
+  }
 }
 
 /* ─── copy helpers ─── */
