@@ -92,7 +92,15 @@ func (p *Runner) sendReadRaw(targetBase, targetKey string, body []byte) ([]byte,
 	if err != nil {
 		return nil, nil, fmt.Errorf("read: %w", err)
 	}
-	p.recordExchange(body, raw, resp.StatusCode)
+	// Fill response into the exchange that send() already created (avoid duplicates).
+	if p.recording {
+		p.mu.Lock()
+		if n := len(p.exchanges); n > 0 {
+			p.exchanges[n-1].Response = json.RawMessage(raw)
+			p.exchanges[n-1].Status = resp.StatusCode
+		}
+		p.mu.Unlock()
+	}
 	var j map[string]any
 	if err := json.Unmarshal(raw, &j); err != nil {
 		return raw, nil, fmt.Errorf("parse: %w", err)

@@ -1008,24 +1008,75 @@ function renderProbeRow(probe, anchor, ctx) {
 }
 
 /* ─── Exchange rendering ─── */
-function renderExchanges(container, exchanges) {
+function fmtJSON(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object') return JSON.stringify(raw, null, 2);
+  if (typeof raw === 'string') {
+    try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
+  }
+  return String(raw);
+}
+
+function renderExchangePanel(container, exchanges, probe) {
   container.innerHTML = '';
+  const header = el('div', { class: 'ex-panel-head' },
+    el('span', { class: 'ex-panel-title' },
+      mkIcon('code', { size: 12 }),
+      ' 请求 / 响应',
+      el('span', { class: 'ex-panel-meta' }, probe ? probe.label || probe.probe_id : ''),
+    ),
+    el('span', { class: 'ex-panel-count' }, exchanges.length + ' 次调用'),
+  );
+  container.appendChild(header);
+
   exchanges.forEach((ex, i) => {
-    let reqStr = '(streaming)';
-    let respStr = '(not captured)';
-    try { reqStr = ex.request ? JSON.stringify(JSON.parse(ex.request), null, 2) : reqStr; } catch { reqStr = ex.request; }
-    try { respStr = ex.response ? JSON.stringify(JSON.parse(ex.response), null, 2) : respStr; } catch { respStr = ex.response; }
-    container.appendChild(el('details', { class: 'ex-block', open: exchanges.length === 1 ? true : undefined },
-      el('summary', null,
-        el('span', null, 'Request #' + (i + 1)),
-        el('span', { class: 'status' }, 'HTTP ' + (ex.status || 200)),
-      ),
-      el('pre', null, reqStr),
-    ));
-    container.appendChild(el('details', { class: 'ex-block', open: exchanges.length === 1 ? true : undefined },
-      el('summary', null, el('span', null, 'Response #' + (i + 1))),
-      el('pre', null, respStr),
-    ));
+    const reqJSON = fmtJSON(ex.request);
+    const respJSON = fmtJSON(ex.response);
+    const status = ex.status || 200;
+    const statusOk = status >= 200 && status < 300;
+
+    const card = el('div', { class: 'ex-card' });
+
+    // card header
+    const cardHead = el('div', { class: 'ex-card-head' },
+      el('span', { class: 'ex-num' }, '#' + (i + 1)),
+      el('span', { class: 'ex-method' }, 'POST /v1/messages'),
+      el('span', { class: 'ex-status ' + (statusOk ? 'ok' : 'err') }, status),
+    );
+    card.appendChild(cardHead);
+
+    // request section
+    if (reqJSON) {
+      const reqSection = el('div', { class: 'ex-section' });
+      const reqHead = el('div', { class: 'ex-section-head' },
+        el('span', { class: 'ex-section-label' }, 'REQUEST BODY'),
+        el('button', { class: 'btn btn-ghost btn-xs', title: '复制',
+          onclick: ev => { ev.stopPropagation(); copyText(reqJSON); toast('已复制', 'good'); },
+        }, mkIcon('copy', { size: 10 })),
+      );
+      reqSection.appendChild(reqHead);
+      reqSection.appendChild(el('pre', { class: 'ex-json' }, reqJSON));
+      card.appendChild(reqSection);
+    }
+
+    // response section
+    const respSection = el('div', { class: 'ex-section' });
+    const respHead = el('div', { class: 'ex-section-head' },
+      el('span', { class: 'ex-section-label' }, 'RESPONSE BODY'),
+    );
+    if (respJSON) {
+      respHead.appendChild(el('button', { class: 'btn btn-ghost btn-xs', title: '复制',
+        onclick: ev => { ev.stopPropagation(); copyText(respJSON); toast('已复制', 'good'); },
+      }, mkIcon('copy', { size: 10 })));
+      respSection.appendChild(respHead);
+      respSection.appendChild(el('pre', { class: 'ex-json' }, respJSON));
+    } else {
+      respSection.appendChild(respHead);
+      respSection.appendChild(el('div', { class: 'ex-none' }, status >= 200 && status < 300 ? 'streaming — 响应体已合并至检查结果' : '未捕获'));
+    }
+    card.appendChild(respSection);
+
+    container.appendChild(card);
   });
 }
 
@@ -1151,15 +1202,11 @@ async function toggleCheckExchange(item, probe, ctx) {
   const panel = item.querySelector('.check-exchange');
   if (!panel) return;
 
-  // toggle off
   if (panel.classList.contains('open')) {
     panel.classList.remove('open');
     return;
   }
-
   panel.classList.add('open');
-
-  // already rendered
   if (panel.dataset.loaded) return;
 
   panel.innerHTML = '';
@@ -1172,9 +1219,7 @@ async function toggleCheckExchange(item, probe, ctx) {
     }
     panel.innerHTML = '';
     if (exchanges && exchanges.length) {
-      const strip = el('div', { class: 'exchange-strip' });
-      renderExchanges(strip, exchanges);
-      panel.appendChild(strip);
+      renderExchangePanel(panel, exchanges, probe);
     } else {
       panel.appendChild(el('div', { class: 'ex-empty' }, '无请求/响应数据'));
     }
