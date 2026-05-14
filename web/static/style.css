@@ -638,8 +638,8 @@ a:hover { color: var(--accent-2); }
 .check-row .expect .v.exp { color: var(--good-ink); }
 .check-row .expect .v.act { color: var(--bad-ink); }
 .check-row .fix { font-size: 10px; font-family: var(--font-mono); color: var(--warn-ink); margin-top: 4px; }
-.check-row .actions { display: none; gap: 4px; align-items: center; }
-.check-item:hover .check-row .actions { display: flex; }
+.check-row .actions { display: flex; gap: 2px; align-items: center; opacity: .45; transition: opacity .1s; }
+.check-item:hover .check-row .actions { opacity: 1; }
 
 .check-exchange {
   display: none;
