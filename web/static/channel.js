@@ -946,7 +946,7 @@ function renderProbeListPanel(pm, run, runId, model, anchor) {
   if (order.length === 0) {
     list.appendChild(el('div', { class: 'empty' }, run.state === 'running' ? '等待 probe 结果…' : '无 probe 数据'));
   } else {
-    order.forEach(pid => list.appendChild(renderProbeRow(pm.probes[pid], anchor)));
+    order.forEach(pid => list.appendChild(renderProbeRow(pm.probes[pid], anchor, { run, runId, model })));
   }
   body.appendChild(list);
   panel.appendChild(body);
@@ -969,51 +969,60 @@ function renderProbeListPanel(pm, run, runId, model, anchor) {
   return panel;
 }
 
-function renderProbeRow(probe, anchor) {
+function renderProbeRow(probe, anchor, ctx) {
   const checks = probe.checks || [];
   const passed = checks.filter(c => c.pass).length;
   const total = checks.length;
   const isRunning = probe.state === 'running';
+  const isRetrying = probe._retrying;
   const allPass = total > 0 && passed === total;
   const hasFail = passed < total;
 
-  const dot = el('span', { class: 'led-dot ' + (isRunning ? 'run' : total === 0 ? 'pending' : allPass ? 'pass' : 'fail') });
+  const dot = el('span', { class: 'led-dot ' + (isRunning || isRetrying ? 'run' : total === 0 ? 'pending' : allPass ? 'pass' : 'fail') });
+
+  const headActions = el('div', { class: 'probe-head-actions' });
+
+  // retry button (only for completed probes with context)
+  if (ctx && probe.state === 'done' && !isRetrying) {
+    const retryBtn = el('button', {
+      class: 'btn btn-ghost btn-xs probe-retry-btn',
+      title: '重试此探针',
+      onclick: ev => {
+        ev.stopPropagation();
+        retryProbe(ctx.runId, ctx.model, probe.probe_id, ctx.run);
+      },
+    }, mkIcon('refresh', { size: 12 }));
+    headActions.appendChild(retryBtn);
+  }
+  if (isRetrying) {
+    headActions.appendChild(el('span', { class: 'probe-retrying' }, '重试中…'));
+  }
+
   const head = el('div', { class: 'probe-head' },
     dot,
     el('div', { class: 'name' }, probe.label || probe.probe_id,
       el('span', { class: 'id' }, probe.probe_id)),
     el('div', { class: 'checks-count ' + (total === 0 ? '' : allPass ? 'allpass' : 'hasfail') },
-      isRunning ? '…' : (passed + '/' + total)),
+      isRunning || isRetrying ? '…' : (passed + '/' + total)),
     el('div', { class: 'latency' }, probe.latency_ms != null ? fmtMs(probe.latency_ms) : (isRunning ? '·' : '—')),
-    el('span', null, ''),
+    headActions,
     el('span', { class: 'caret' }, '›'),
   );
-  head.onclick = () => row.classList.toggle('open');
+  head.onclick = () => {
+    const opening = !row.classList.contains('open');
+    row.classList.toggle('open');
+    if (opening) maybeLoadExchanges(row, probe, ctx);
+  };
 
   const body = el('div', { class: 'probe-body' });
 
-  // exchanges
+  // exchange container (lazy loaded for historical, inline for live)
+  const exContainer = el('div', { class: 'exchange-strip' });
   if (probe.exchanges && probe.exchanges.length) {
-    const exs = el('div', { class: 'exchange-strip' });
-    probe.exchanges.forEach((ex, i) => {
-      let reqStr = '(streaming)';
-      let respStr = '(not captured)';
-      try { reqStr = ex.request ? JSON.stringify(JSON.parse(ex.request), null, 2) : reqStr; } catch { reqStr = ex.request; }
-      try { respStr = ex.response ? JSON.stringify(JSON.parse(ex.response), null, 2) : respStr; } catch { respStr = ex.response; }
-      exs.appendChild(el('details', { class: 'ex-block' },
-        el('summary', null,
-          el('span', null, 'Request #' + (i + 1)),
-          el('span', { class: 'status' }, (ex.status || 200) + ''),
-        ),
-        el('pre', null, reqStr),
-      ));
-      exs.appendChild(el('details', { class: 'ex-block' },
-        el('summary', null, el('span', null, 'Response #' + (i + 1))),
-        el('pre', null, respStr),
-      ));
-    });
-    body.appendChild(exs);
+    renderExchanges(exContainer, probe.exchanges);
+    probe._exchangesLoaded = true;
   }
+  body.appendChild(exContainer);
 
   // checks
   checks.forEach(c => {
@@ -1025,7 +1034,110 @@ function renderProbeRow(probe, anchor) {
   const row = el('div', { class: 'probe-row' + ((anchor && checks.some(c => c.name === anchor)) || hasFail ? ' open' : ''),
     'data-probe': probe.probe_id });
   row.appendChild(head); row.appendChild(body);
+
+  // auto-load exchanges if initially open
+  if (row.classList.contains('open')) {
+    setTimeout(() => maybeLoadExchanges(row, probe, ctx), 0);
+  }
   return row;
+}
+
+function renderExchanges(container, exchanges) {
+  container.innerHTML = '';
+  exchanges.forEach((ex, i) => {
+    let reqStr = '(streaming)';
+    let respStr = '(not captured)';
+    try { reqStr = ex.request ? JSON.stringify(JSON.parse(ex.request), null, 2) : reqStr; } catch { reqStr = ex.request; }
+    try { respStr = ex.response ? JSON.stringify(JSON.parse(ex.response), null, 2) : respStr; } catch { respStr = ex.response; }
+    container.appendChild(el('details', { class: 'ex-block' },
+      el('summary', null,
+        el('span', null, 'Request #' + (i + 1)),
+        el('span', { class: 'status' }, (ex.status || 200) + ''),
+      ),
+      el('pre', null, reqStr),
+    ));
+    container.appendChild(el('details', { class: 'ex-block' },
+      el('summary', null, el('span', null, 'Response #' + (i + 1))),
+      el('pre', null, respStr),
+    ));
+  });
+}
+
+async function maybeLoadExchanges(row, probe, ctx) {
+  if (!ctx || probe._exchangesLoaded || probe._exchangesLoading) return;
+  if (probe.exchanges && probe.exchanges.length) { probe._exchangesLoaded = true; return; }
+  if (!ctx.run || !ctx.run.historical) return;
+
+  const exContainer = row.querySelector('.exchange-strip');
+  if (!exContainer) return;
+
+  probe._exchangesLoading = true;
+  exContainer.innerHTML = '';
+  exContainer.appendChild(el('div', { class: 'ex-loading' }, '加载请求/响应…'));
+
+  try {
+    const reportId = ctx.run.finalReports && ctx.run.finalReports.length
+      ? ctx.run.finalReports.find(r => r.model === ctx.model)?.id || ctx.runId
+      : ctx.runId;
+    const data = await api('/api/channel/history/' + encodeURIComponent(reportId) + '/probe/' + encodeURIComponent(probe.probe_id));
+    if (data.exchanges && data.exchanges.length) {
+      probe.exchanges = data.exchanges;
+      renderExchanges(exContainer, data.exchanges);
+    } else {
+      exContainer.innerHTML = '';
+      exContainer.appendChild(el('div', { class: 'ex-empty' }, '无请求/响应数据'));
+    }
+    probe._exchangesLoaded = true;
+  } catch (e) {
+    exContainer.innerHTML = '';
+    exContainer.appendChild(el('div', { class: 'ex-empty' }, '加载失败: ' + e.message));
+  } finally {
+    probe._exchangesLoading = false;
+  }
+}
+
+async function retryProbe(runId, model, probeId, run) {
+  const targetKey = (run && run.payload && run.payload.target_key) || State.channel.targetKey;
+  if (!targetKey) {
+    toast('请先在 Channel 配置页填写 API Key', 'warn');
+    return;
+  }
+
+  const reportId = run.finalReports && run.finalReports.length
+    ? (run.finalReports.find(r => r.model === model) || {}).id || runId
+    : runId;
+
+  const pm = run.perModel[model];
+  if (!pm || !pm.probes[probeId]) return;
+  pm.probes[probeId]._retrying = true;
+  const route = parseRoute(location.hash);
+  renderRunPage(runId, model, route.anchor);
+
+  try {
+    const data = await api('/api/channel/history/' + encodeURIComponent(reportId) + '/probe/' + encodeURIComponent(probeId) + '/retry', {
+      method: 'POST',
+      body: JSON.stringify({ target_key: targetKey }),
+    });
+
+    // Update probe in run state
+    if (data.probe) {
+      pm.probes[probeId] = Object.assign({}, data.probe, { state: 'done', _exchangesLoaded: true });
+    }
+    // Update report score
+    if (pm.report && data.score) {
+      pm.report.score = data.score;
+    }
+    if (pm.report && data.checks) {
+      pm.report.checks = data.checks;
+    }
+    toast('探针 ' + probeId + ' 重试完成', 'good');
+  } catch (e) {
+    toast('重试失败: ' + e.message, 'bad');
+  } finally {
+    pm.probes[probeId]._retrying = false;
+    const route2 = parseRoute(location.hash);
+    renderRunPage(runId, model, route2.anchor);
+  }
 }
 
 function renderCheckRow(c, probe) {

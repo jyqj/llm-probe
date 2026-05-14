@@ -428,6 +428,132 @@ func (s *Store) GetHistoryGroup(groupID string) []*Report {
 	return out
 }
 
+// stripExchanges returns a shallow copy of the report with exchanges removed from probe results.
+func stripExchanges(r *Report) *Report {
+	lite := *r
+	lite.ProbeResults = make([]ProbeResult, len(r.ProbeResults))
+	for i, pr := range r.ProbeResults {
+		lite.ProbeResults[i] = ProbeResult{
+			ProbeID:   pr.ProbeID,
+			Label:     pr.Label,
+			LatencyMs: pr.LatencyMs,
+			Checks:    pr.Checks,
+		}
+	}
+	return &lite
+}
+
+// GetHistoryLite returns a report with exchanges stripped from probe results.
+func (s *Store) GetHistoryLite(id string) *Report {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, r := range s.history {
+		if r.ID == id {
+			return stripExchanges(r)
+		}
+	}
+	return nil
+}
+
+// GetHistoryGroupLite returns group reports with exchanges stripped.
+func (s *Store) GetHistoryGroupLite(groupID string) []*Report {
+	if groupID == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*Report
+	for _, r := range s.history {
+		if r.RunGroup == groupID {
+			out = append(out, stripExchanges(r))
+		}
+	}
+	return out
+}
+
+// GetProbeResult returns a single probe's full result including exchanges.
+func (s *Store) GetProbeResult(reportID, probeID string) *ProbeResult {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, r := range s.history {
+		if r.ID == reportID {
+			for i := range r.ProbeResults {
+				if r.ProbeResults[i].ProbeID == probeID {
+					cp := r.ProbeResults[i]
+					return &cp
+				}
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+// RetryProbe re-runs a single probe and updates the report in-place.
+func (s *Store) RetryProbe(ctx context.Context, reportID, probeID, targetKey string) (*Report, error) {
+	s.mu.RLock()
+	var target *Report
+	for _, r := range s.history {
+		if r.ID == reportID {
+			target = r
+			break
+		}
+	}
+	s.mu.RUnlock()
+
+	if target == nil {
+		return nil, fmt.Errorf("report not found: %s", reportID)
+	}
+
+	var probe *Probe
+	for _, p := range allProbes {
+		if p.ID == probeID {
+			probe = p
+			break
+		}
+	}
+	if probe == nil {
+		return nil, fmt.Errorf("probe not found: %s", probeID)
+	}
+
+	result := s.runner.runSingleProbe(ctx, probe, target.Target, targetKey, target.Model)
+
+	s.mu.Lock()
+	replaced := false
+	for i := range target.ProbeResults {
+		if target.ProbeResults[i].ProbeID == probeID {
+			target.ProbeResults[i] = result
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		target.ProbeResults = append(target.ProbeResults, result)
+	}
+
+	var checks []CheckResult
+	for _, pr := range target.ProbeResults {
+		checks = append(checks, pr.Checks...)
+	}
+	InjectLabels(checks)
+	target.Checks = checks
+
+	mode := "full"
+	if target.Score != nil {
+		mode = target.Score.Mode
+	}
+	target.Score = CalculateScore(checks, mode)
+	target.Summary = BuildSummaryWithScore(checks, target.Score)
+	target.Recommended = RecommendFixes(checks)
+	s.mu.Unlock()
+
+	if p := s.persist; p != nil && p.Save != nil {
+		p.logErr("retry_probe", p.Save(p.DB, target))
+	}
+
+	return target, nil
+}
+
 // UpdateHistoryName updates the channel name on an existing history record.
 func (s *Store) UpdateHistoryName(id, name string) bool {
 	s.mu.Lock()

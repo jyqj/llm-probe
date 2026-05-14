@@ -187,18 +187,20 @@ func (a *API) handleChannelHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleChannelHistoryDetail(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/channel/history/")
-	if id == "" {
+	remainder := strings.TrimPrefix(r.URL.Path, "/api/channel/history/")
+	if remainder == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "id is required"})
 		return
 	}
-	if strings.HasPrefix(id, "group/") {
-		groupID := strings.TrimPrefix(id, "group/")
+
+	// group sub-route: /api/channel/history/group/{groupID}
+	if strings.HasPrefix(remainder, "group/") {
+		groupID := strings.TrimPrefix(remainder, "group/")
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		reports := a.channelStore.GetHistoryGroup(groupID)
+		reports := a.channelStore.GetHistoryGroupLite(groupID)
 		if len(reports) == 0 {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
 			return
@@ -206,6 +208,22 @@ func (a *API) handleChannelHistoryDetail(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusOK, map[string]any{"reports": reports})
 		return
 	}
+
+	// probe sub-route: /api/channel/history/{id}/probe/{probeID}[/retry]
+	if idx := strings.Index(remainder, "/probe/"); idx >= 0 {
+		reportID := remainder[:idx]
+		probeRest := remainder[idx+7:]
+
+		if strings.HasSuffix(probeRest, "/retry") {
+			probeID := strings.TrimSuffix(probeRest, "/retry")
+			a.handleProbeRetry(w, r, reportID, probeID)
+			return
+		}
+		a.handleProbeDetail(w, r, reportID, probeRest)
+		return
+	}
+
+	id := remainder
 	if r.Method == http.MethodDelete {
 		if a.channelStore.DeleteHistory(id) {
 			writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
@@ -233,12 +251,75 @@ func (a *API) handleChannelHistoryDetail(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	report := a.channelStore.GetHistory(id)
+
+	// Return lite report (probe_results without exchanges) by default.
+	// Use ?full=1 for the complete payload including exchanges.
+	if r.URL.Query().Get("full") == "1" {
+		report := a.channelStore.GetHistory(id)
+		if report == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, report)
+		return
+	}
+	report := a.channelStore.GetHistoryLite(id)
 	if report == nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+func (a *API) handleProbeDetail(w http.ResponseWriter, r *http.Request, reportID, probeID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	pr := a.channelStore.GetProbeResult(reportID, probeID)
+	if pr == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "probe not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, pr)
+}
+
+func (a *API) handleProbeRetry(w http.ResponseWriter, r *http.Request, reportID, probeID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		TargetKey string `json:"target_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
+		return
+	}
+	if body.TargetKey == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "target_key is required"})
+		return
+	}
+
+	report, err := a.channelStore.RetryProbe(r.Context(), reportID, probeID, body.TargetKey)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+
+	// Return the updated probe result + score (lite, without exchanges from other probes)
+	var retried *channeltest.ProbeResult
+	for i := range report.ProbeResults {
+		if report.ProbeResults[i].ProbeID == probeID {
+			retried = &report.ProbeResults[i]
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"probe":  retried,
+		"score":  report.Score,
+		"checks": report.Checks,
+	})
 }
 
 func (a *API) handleChannelReport(w http.ResponseWriter, r *http.Request) {

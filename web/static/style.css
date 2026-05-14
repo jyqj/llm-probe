@@ -581,7 +581,7 @@ a:hover { color: var(--accent-2); }
 .probe-row:last-child { border-bottom: none; }
 .probe-head {
   display: grid;
-  grid-template-columns: 20px 1fr 100px 80px 70px 20px;
+  grid-template-columns: 20px 1fr 100px 80px auto 20px;
   align-items: center;
   gap: 12px;
   padding: 8px 14px;
@@ -599,6 +599,12 @@ a:hover { color: var(--accent-2); }
 .probe-head .latency { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-4); text-align: right; }
 .probe-head .caret { color: var(--ink-4); transition: transform .15s; text-align: center; }
 .probe-row.open .probe-head .caret { transform: rotate(90deg); }
+
+.probe-head-actions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; min-width: 0; }
+.probe-retry-btn { opacity: 0; transition: opacity .15s; }
+.probe-head:hover .probe-retry-btn { opacity: 1; }
+.probe-retrying { font-size: 10px; color: var(--accent); font-family: var(--font-mono); animation: pulse 1.2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
 .probe-body { padding: 0 14px 12px 46px; display: none; }
 .probe-row.open .probe-body { display: block; }
 
@@ -635,11 +641,20 @@ a:hover { color: var(--accent-2); }
 
 .exchange-strip {
   display: flex; flex-direction: column; gap: 1px;
-  margin: 8px 0;
-  border: 1px solid var(--line-soft);
   border-radius: var(--r-sm);
   background: var(--line-soft);
 }
+.exchange-strip:empty { display: none; }
+.exchange-strip:not(:empty) {
+  margin: 8px 0;
+  border: 1px solid var(--line-soft);
+}
+.ex-loading, .ex-empty {
+  padding: 8px 12px; font-size: 11px;
+  font-family: var(--font-mono); color: var(--ink-4);
+  background: var(--bg-2);
+}
+.ex-loading { animation: pulse 1.2s infinite; }
 .ex-block { background: var(--bg-2); }
 .ex-block summary {
   list-style: none;
