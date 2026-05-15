@@ -74,6 +74,7 @@ var checkRegistry = map[string]CheckMeta{
 	"structured_json_valid":     {Name: "structured_json_valid", Label: "JSON schema 结构化输出", Category: CatStructural, DefaultFix: "body_rewrite"},
 	"structured_schema_match":   {Name: "structured_schema_match", Label: "结构化输出 schema 匹配", Category: CatStructural, DefaultFix: "body_rewrite"},
 	"structured_stop_reason":    {Name: "structured_stop_reason", Label: "结构化输出 stop_reason", Category: CatStructural, DefaultFix: "body_rewrite"},
+	"structured_name_correct":   {Name: "structured_name_correct", Label: "结构化输出内容验证", Category: CatStructural, DefaultFix: "body_rewrite"},
 	"headers":                   {Name: "headers", Label: "Anthropic 速率限制头验证", Category: CatStructural, DefaultFix: "headers_fake"},
 	"cf_headers":                {Name: "cf_headers", Label: "Cloudflare 头验证", Category: CatStructural, DefaultFix: "headers_fake"},
 	"server_timing":             {Name: "server_timing", Label: "Server-Timing 头验证", Category: CatStructural, DefaultFix: "headers_fake"},
@@ -134,6 +135,9 @@ var checkRegistry = map[string]CheckMeta{
 	// ── Minimal token billing ──
 	"minimal_input_tokens":  {Name: "minimal_input_tokens", Label: "最小 token 计费核对 (input)", Category: CatFingerprint},
 	"minimal_output_tokens": {Name: "minimal_output_tokens", Label: "最小 token 计费核对 (output)", Category: CatFingerprint},
+
+	// ── API error (info-only, scoring via skipped checks) ──
+	"api_error": {Name: "api_error", Label: "API 错误", Category: CatStructural},
 }
 
 // checkCategoryMap maps check names to their category.

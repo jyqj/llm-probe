@@ -3,6 +3,7 @@ package channeltest
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,21 +54,21 @@ type ModelReport struct {
 
 // Run runs the channel test suite against a target for a single model.
 // concurrency=0 means sequential.
-func (p *Runner) Run(targetBase, targetKey, model string, concurrency int) (*Report, error) {
-	return p.RunCtx(context.Background(), targetBase, targetKey, model, concurrency)
+func (p *Runner) Run(targetBase, targetKey, model string, concurrency int, profile string) (*Report, error) {
+	return p.RunCtx(context.Background(), targetBase, targetKey, model, concurrency, profile)
 }
 
 // RunCtx runs the suite with context support for cancellation.
-func (p *Runner) RunCtx(ctx context.Context, targetBase, targetKey, model string, concurrency int) (*Report, error) {
-	return p.runInternal(ctx, targetBase, targetKey, model, concurrency, nil)
+func (p *Runner) RunCtx(ctx context.Context, targetBase, targetKey, model string, concurrency int, profile string) (*Report, error) {
+	return p.runInternal(ctx, targetBase, targetKey, model, concurrency, profile, nil)
 }
 
 // RunStream runs the suite with streaming events via onEvent callback.
-func (p *Runner) RunStream(ctx context.Context, targetBase, targetKey, model string, concurrency int, onEvent func(StreamEvent)) (*Report, error) {
-	return p.runInternal(ctx, targetBase, targetKey, model, concurrency, onEvent)
+func (p *Runner) RunStream(ctx context.Context, targetBase, targetKey, model string, concurrency int, profile string, onEvent func(StreamEvent)) (*Report, error) {
+	return p.runInternal(ctx, targetBase, targetKey, model, concurrency, profile, onEvent)
 }
 
-func (p *Runner) runInternal(ctx context.Context, targetBase, targetKey, model string, concurrency int, onEvent func(StreamEvent)) (*Report, error) {
+func (p *Runner) runInternal(ctx context.Context, targetBase, targetKey, model string, concurrency int, profile string, onEvent func(StreamEvent)) (*Report, error) {
 	startedAt := time.Now()
 
 	probes := ProbesForModel(model)
@@ -79,7 +80,10 @@ func (p *Runner) runInternal(ctx context.Context, targetBase, targetKey, model s
 
 	var checks []CheckResult
 	for _, r := range results {
-		checks = append(checks, r.Checks...)
+		for _, c := range r.Checks {
+			c.ProbeID = r.ProbeID
+			checks = append(checks, c)
+		}
 	}
 
 	InjectLabels(checks)
@@ -97,6 +101,23 @@ func (p *Runner) runInternal(ctx context.Context, targetBase, targetKey, model s
 		}
 	}
 
+	var probeErrors []ProbeError
+	for _, r := range results {
+		for _, c := range r.Checks {
+			if c.Name == "api_error" {
+				pe := ProbeError{ProbeID: r.ProbeID, Message: c.Detail}
+				if parts := strings.SplitN(c.Actual, ": ", 2); len(parts) == 2 {
+					fmt.Sscanf(parts[0], "HTTP %d", &pe.StatusCode)
+					pe.ErrorType = parts[1]
+				} else {
+					fmt.Sscanf(c.Actual, "HTTP %d", &pe.StatusCode)
+				}
+				pe.Category = classifyAPIError(pe.StatusCode, pe.ErrorType)
+				probeErrors = append(probeErrors, pe)
+			}
+		}
+	}
+
 	report := &Report{
 		Target:        targetBase,
 		Model:         model,
@@ -106,9 +127,17 @@ func (p *Runner) runInternal(ctx context.Context, targetBase, targetKey, model s
 		ProbeResults:  results,
 		Billing:       &billing,
 		SkippedProbes: skippedProbes,
+		Errors:        probeErrors,
 	}
+	var allExchanges []Exchange
+	for _, r := range results {
+		allExchanges = append(allExchanges, r.Exchanges...)
+	}
+	report.IdentifiedChannels = IdentifyChannel(allExchanges, checks, p.KeywordStore)
+
+	report.Profile = profile
 	report.Recommended = RecommendFixes(checks)
-	report.Score = CalculateScore(checks, "full")
+	report.Score = CalculateScore(checks, "full", profile)
 	report.Summary = BuildSummaryWithScore(checks, report.Score)
 	report.RunProfile = fmt.Sprintf("Ran %d probes (%d checks), skipped %d. Model: %s. Est cost: $%.4f. Elapsed: %dms.",
 		len(probes), len(checks), len(skippedProbes), model, billing.TotalCost, report.ElapsedMs)
@@ -116,27 +145,27 @@ func (p *Runner) runInternal(ctx context.Context, targetBase, targetKey, model s
 }
 
 // RunMulti runs the suite for multiple models against the same target.
-func (p *Runner) RunMulti(targetBase, targetKey string, models []string, concurrency int) ([]*Report, error) {
-	return p.RunMultiCtx(context.Background(), targetBase, targetKey, models, concurrency)
+func (p *Runner) RunMulti(targetBase, targetKey string, models []string, concurrency int, profile string) ([]*Report, error) {
+	return p.RunMultiCtx(context.Background(), targetBase, targetKey, models, concurrency, profile)
 }
 
 // RunMultiCtx runs for multiple models with context support.
-func (p *Runner) RunMultiCtx(ctx context.Context, targetBase, targetKey string, models []string, concurrency int) ([]*Report, error) {
-	return p.runMultiInternal(ctx, targetBase, targetKey, models, concurrency, nil)
+func (p *Runner) RunMultiCtx(ctx context.Context, targetBase, targetKey string, models []string, concurrency int, profile string) ([]*Report, error) {
+	return p.runMultiInternal(ctx, targetBase, targetKey, models, concurrency, profile, nil)
 }
 
 // RunMultiStream runs for multiple models with streaming events.
-func (p *Runner) RunMultiStream(ctx context.Context, targetBase, targetKey string, models []string, concurrency int, onEvent func(StreamEvent)) ([]*Report, error) {
-	return p.runMultiInternal(ctx, targetBase, targetKey, models, concurrency, onEvent)
+func (p *Runner) RunMultiStream(ctx context.Context, targetBase, targetKey string, models []string, concurrency int, profile string, onEvent func(StreamEvent)) ([]*Report, error) {
+	return p.runMultiInternal(ctx, targetBase, targetKey, models, concurrency, profile, onEvent)
 }
 
-func (p *Runner) runMultiInternal(ctx context.Context, targetBase, targetKey string, models []string, concurrency int, onEvent func(StreamEvent)) ([]*Report, error) {
+func (p *Runner) runMultiInternal(ctx context.Context, targetBase, targetKey string, models []string, concurrency int, profile string, onEvent func(StreamEvent)) ([]*Report, error) {
 	var reports []*Report
 	for _, model := range models {
 		if err := ctx.Err(); err != nil {
 			return reports, err
 		}
-		report, err := p.runInternal(ctx, targetBase, targetKey, model, concurrency, onEvent)
+		report, err := p.runInternal(ctx, targetBase, targetKey, model, concurrency, profile, onEvent)
 		if err != nil {
 			if ctx.Err() != nil {
 				return reports, ctx.Err()
@@ -244,7 +273,11 @@ func (p *Runner) runSingleProbe(ctx context.Context, probe *Probe, base, key, mo
 	elapsed := time.Since(start).Milliseconds()
 
 	if err != nil {
-		checks = []CheckResult{{Name: probe.ID, Pass: false, Detail: err.Error()}}
+		if apiErr := asAPIError(err); apiErr != nil {
+			checks = apiErrorChecks(probe, apiErr)
+		} else {
+			checks = []CheckResult{{Name: probe.ID, Pass: false, Detail: err.Error()}}
+		}
 	}
 
 	return ProbeResult{
@@ -268,17 +301,42 @@ func collectTokens(checks []CheckResult) (int, int) {
 }
 
 // RunMonitor runs only monitor-tagged probes (lightweight periodic check).
-func (p *Runner) RunMonitor(targetBase, targetKey, model string) (*Report, error) {
+func (p *Runner) RunMonitor(targetBase, targetKey, model, profile string) (*Report, error) {
+	return p.RunMonitorCtx(context.Background(), targetBase, targetKey, model, profile)
+}
+
+// RunMonitorCtx runs only monitor-tagged probes with context for cancellation.
+func (p *Runner) RunMonitorCtx(ctx context.Context, targetBase, targetKey, model, profile string) (*Report, error) {
 	startedAt := time.Now()
 
 	probes := FilterProbes("monitor")
-	results := p.executeProbes(probes, targetBase, targetKey, model, 0)
+	results := p.executeProbesCtx(ctx, probes, targetBase, targetKey, model, 0, nil)
 
 	var checks []CheckResult
 	for _, r := range results {
-		checks = append(checks, r.Checks...)
+		for _, c := range r.Checks {
+			c.ProbeID = r.ProbeID
+			checks = append(checks, c)
+		}
 	}
 	InjectLabels(checks)
+
+	var monitorErrors []ProbeError
+	for _, r := range results {
+		for _, c := range r.Checks {
+			if c.Name == "api_error" {
+				pe := ProbeError{ProbeID: r.ProbeID, Message: c.Detail}
+				if parts := strings.SplitN(c.Actual, ": ", 2); len(parts) == 2 {
+					fmt.Sscanf(parts[0], "HTTP %d", &pe.StatusCode)
+					pe.ErrorType = parts[1]
+				} else {
+					fmt.Sscanf(c.Actual, "HTTP %d", &pe.StatusCode)
+				}
+				pe.Category = classifyAPIError(pe.StatusCode, pe.ErrorType)
+				monitorErrors = append(monitorErrors, pe)
+			}
+		}
+	}
 
 	report := &Report{
 		Target:       targetBase,
@@ -287,9 +345,11 @@ func (p *Runner) RunMonitor(targetBase, targetKey, model string) (*Report, error
 		ElapsedMs:    time.Since(startedAt).Milliseconds(),
 		Checks:       checks,
 		ProbeResults: results,
+		Errors:       monitorErrors,
 	}
+	report.Profile = profile
 	report.Recommended = RecommendFixes(checks)
-	report.Score = CalculateScore(checks, "monitor")
+	report.Score = CalculateScore(checks, "monitor", profile)
 	report.Summary = BuildSummaryWithScore(checks, report.Score)
 	return report, nil
 }

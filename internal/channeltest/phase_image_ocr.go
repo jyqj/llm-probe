@@ -4,21 +4,21 @@ import "detector-service/internal/channeltest/data"
 
 var probeImageOCR = &Probe{
 	ID: "image_ocr", Label: "图片 OCR 探针",
-	Tags:      []string{"heavy"},
-	EstTokens: 25000,
-	Checks:    []string{"image_ocr"},
-	Run:       (*Runner).runImageOCR,
+	Tags:       []string{"heavy"},
+	EstTokens:  25000,
+	Checks:     []string{"image_ocr"},
+	OnlyModels: []string{"claude-sonnet", "claude-opus"},
+	Run:        (*Runner).runImageOCR,
 }
 
 func (p *Runner) runImageOCR(targetBase, targetKey, model string) ([]CheckResult, error) {
 	ocrText := data.RandomOCRText(8)
 	imgB64 := data.GenTestImageBase64(ocrText)
 
-	body := toJSON(map[string]any{
+	req := map[string]any{
 		"model":      model,
 		"max_tokens": 1024,
 		"stream":     true,
-		"thinking":   map[string]any{"type": "adaptive"},
 		"system":     fullSystem(),
 		"tools":      data.Tools(),
 		"metadata":   genMetadata(),
@@ -41,7 +41,11 @@ func (p *Runner) runImageOCR(targetBase, targetKey, model string) ([]CheckResult
 				},
 			},
 		},
-	})
+	}
+	if tp := ThinkingParam(model); tp != nil {
+		req["thinking"] = tp
+	}
+	body := toJSON(req)
 
 	resp, err := p.send(targetBase, targetKey, body)
 	if err != nil {

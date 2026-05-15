@@ -71,7 +71,16 @@ func main() {
 		logger.Warn("persist error", "op", op, "error", err)
 	}
 
+	keywordStore := channeltest.NewKeywordStore(&channeltest.KeywordPersist{
+		DB:      db.Conn(),
+		LogErr:  persistLog,
+		Save:    persist.SaveKeyword,
+		Delete:  persist.DeleteKeyword,
+		LoadAll: persist.LoadAllKeywords,
+	})
+
 	channelRunner := channeltest.NewRunner()
+	channelRunner.KeywordStore = keywordStore
 	channelStore := channeltest.NewStore(channelRunner, logger, false, nil, &channeltest.StorePersist{
 		DB:         db.Conn(),
 		LogErr:     persistLog,
@@ -131,7 +140,7 @@ func main() {
 		if !alertEnabled {
 			return
 		}
-		state := monitorStore.GetState(run.TargetID, run.Model)
+		state := monitorStore.GetState(run.TargetID, run.Model, run.CheckType)
 		events := alertEvaluator.Evaluate(run, state)
 		alertNotifier.NotifyAll(events)
 	})
@@ -150,6 +159,7 @@ func main() {
 	mux := http.NewServeMux()
 	api := api.New(cfg, logger, channelStore, registry, runner, intelligenceHistory)
 	api.SetMonitor(monitorStore, monitorRunner, baselineStore, channelRunner)
+	api.SetKeywords(keywordStore)
 	api.SetAlerts(alertStore, alertEvaluator, alertNotifier, alertRules)
 	api.RegisterRoutes(mux)
 

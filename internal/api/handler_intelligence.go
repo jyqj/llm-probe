@@ -131,6 +131,7 @@ func (a *API) handleDatasetRun(w http.ResponseWriter, r *http.Request, ds intell
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
+	a.applyBaselineComparison(report, req.BaselineID)
 	a.intelligenceHistory.Add(report)
 	writeJSON(w, http.StatusOK, report)
 }
@@ -199,7 +200,17 @@ func (a *API) handleDatasetStream(w http.ResponseWriter, r *http.Request, ds int
 		}
 	}()
 
+	var finalEvent *intelligence.StreamEvent
 	report, err := a.intelligenceRunner.RunStream(r.Context(), ds, req, func(ev intelligence.StreamEvent) {
+		// Runner emits the complete event before the API layer can attach baseline
+		// comparison and persist history. Hold only that terminal event here, then
+		// send an enriched complete event below so SSE clients and history observe
+		// the same final report. Progress/error events keep their original timing.
+		if ev.Type == "complete" {
+			event := ev
+			finalEvent = &event
+			return
+		}
 		writeSSE(ev)
 	})
 	close(done)
@@ -207,7 +218,16 @@ func (a *API) handleDatasetStream(w http.ResponseWriter, r *http.Request, ds int
 		writeSSE(intelligence.StreamEvent{Type: "error", ErrorMsg: err.Error()})
 	}
 	if report != nil {
+		a.applyBaselineComparison(report, req.BaselineID)
 		a.intelligenceHistory.Add(report)
+		if finalEvent == nil {
+			finalEvent = &intelligence.StreamEvent{Type: "complete"}
+		}
+		finalEvent.Total = report.TaskTotal
+		finalEvent.Completed = report.TaskCompleted
+		finalEvent.Errors = report.TaskErrors
+		finalEvent.Report = report
+		writeSSE(*finalEvent)
 	}
 }
 
@@ -274,6 +294,18 @@ func (a *API) uploadMultipart(r *http.Request, dsName string) (intelligence.Data
 	return intelligence.LoadCSV(file, name, version, "user-upload")
 }
 
+// applyBaselineComparison attaches baseline comparison data to the report if a baseline ID is provided.
+func (a *API) applyBaselineComparison(report *intelligence.RunReport, baselineID string) {
+	if baselineID == "" || a.baselineStore == nil || report == nil {
+		return
+	}
+	baseline := a.baselineStore.Get(baselineID)
+	if baseline == nil || baseline.IntelligenceReport == nil {
+		return
+	}
+	report.CompareToBaseline(baseline.ID, baseline.Name, baseline.IntelligenceReport)
+}
+
 func (a *API) handleIntelligenceHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -294,11 +326,20 @@ func (a *API) handleIntelligenceHistory(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *API) handleIntelligenceHistoryDetail(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/intelligence/history/")
-	if id == "" {
+	remainder := strings.TrimPrefix(r.URL.Path, "/api/intelligence/history/")
+	if remainder == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "id is required"})
 		return
 	}
+
+	// Sub-route: /api/intelligence/history/{id}/retry
+	if strings.HasSuffix(remainder, "/retry") {
+		id := strings.TrimSuffix(remainder, "/retry")
+		a.handleIntelligenceRetry(w, r, id)
+		return
+	}
+
+	id := remainder
 	if r.Method == http.MethodDelete {
 		if a.intelligenceHistory.Delete(id) {
 			writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
@@ -317,4 +358,86 @@ func (a *API) handleIntelligenceHistoryDetail(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+// handleIntelligenceRetry re-runs selected tasks in a completed report.
+// POST /api/intelligence/history/{id}/retry
+// Body: {"task_indices": [0,3,5], "target_key": "sk-...", "failed": false}
+// If "failed" is true, all errored/failed tasks are retried.
+func (a *API) handleIntelligenceRetry(w http.ResponseWriter, r *http.Request, reportID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		TaskIndices []int  `json:"task_indices"`
+		Failed      bool   `json:"failed"`
+		TargetKey   string `json:"target_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
+		return
+	}
+	if body.TargetKey == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "target_key is required"})
+		return
+	}
+
+	report := a.intelligenceHistory.Get(reportID)
+	if report == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "report not found"})
+		return
+	}
+
+	ds, ok := a.intelligenceRegistry.Get(report.DatasetName)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "dataset not found: " + report.DatasetName})
+		return
+	}
+
+	indices := body.TaskIndices
+	if body.Failed {
+		indices = nil
+		for i, res := range report.Results {
+			if res.Error != "" || (res.Pass != nil && !*res.Pass) {
+				indices = append(indices, i)
+			}
+		}
+	}
+	if len(indices) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"retried": 0, "report": report})
+		return
+	}
+
+	req := intelligence.RunRequest{
+		TargetBase:   report.Target,
+		TargetKey:    body.TargetKey,
+		Model:        report.Model,
+		Thinking:     report.Thinking,
+		Effort:       report.Effort,
+		ThinkingMode: report.ThinkingMode,
+		MaxTokens:    report.MaxTokens,
+	}
+
+	var retried []intelligence.TaskRunResult
+	for _, idx := range indices {
+		if idx < 0 || idx >= len(report.Results) {
+			continue
+		}
+		taskID := report.Results[idx].Task.TaskID
+		task, found := ds.Find(taskID)
+		if !found {
+			continue
+		}
+		result := a.intelligenceRunner.RunSingleTask(r.Context(), req, task)
+		result.Index = idx
+		a.intelligenceHistory.UpdateResult(report, idx, result)
+		retried = append(retried, result)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"retried": len(retried),
+		"results": retried,
+		"report":  report,
+	})
 }

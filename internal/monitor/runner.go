@@ -116,7 +116,7 @@ func (r *MonitorRunner) RunAllCtx(ctx context.Context, target *Target) []*Monito
 }
 
 func (r *MonitorRunner) runChannel(ctx context.Context, target *Target, model string, run *MonitorRun) {
-	report, err := r.channelRunner.RunMonitor(target.BaseURL, target.APIKey, model)
+	report, err := r.channelRunner.RunMonitorCtx(ctx, target.BaseURL, target.APIKey, model, target.Profile)
 	if err != nil {
 		run.Error = err.Error()
 		r.logger.Warn("monitor channel run failed",
@@ -129,8 +129,10 @@ func (r *MonitorRunner) runChannel(ctx context.Context, target *Target, model st
 		run.Score = report.Score.TotalScore
 		run.Grade = report.Score.Grade
 	}
-	if !channelReportOK(report) {
-		full, err := r.channelRunner.Run(target.BaseURL, target.APIKey, model, 2)
+
+	needsEscalation, reason := r.channelNeedsEscalation(target, report)
+	if needsEscalation {
+		full, err := r.channelRunner.RunCtx(ctx, target.BaseURL, target.APIKey, model, 2, target.Profile)
 		if err != nil {
 			run.Error = err.Error()
 			r.logger.Warn("monitor full channel escalation failed",
@@ -138,7 +140,7 @@ func (r *MonitorRunner) runChannel(ctx context.Context, target *Target, model st
 			return
 		}
 		run.Escalated = true
-		run.EscalationReason = "channel monitor surface reported non-ok"
+		run.EscalationReason = reason
 		run.ChannelSurface = "full"
 		run.Report = full
 		if full.Score != nil {
@@ -146,6 +148,30 @@ func (r *MonitorRunner) runChannel(ctx context.Context, target *Target, model st
 			run.Grade = full.Score.Grade
 		}
 	}
+}
+
+func (r *MonitorRunner) channelNeedsEscalation(target *Target, report *channeltest.Report) (bool, string) {
+	if report == nil {
+		return true, "channel monitor surface returned no report"
+	}
+	if target.BaselineID != "" && r.baselineStore != nil {
+		if baseline := r.baselineStore.Get(target.BaselineID); baseline != nil && baseline.ChannelReport != nil {
+			diff := DiffChannel(baseline.ChannelReport, report)
+			if diff != nil && diff.OverlappingChecks > 0 {
+				if diff.RegressedChecks > 0 {
+					return true, "channel monitor surface regressed from official baseline"
+				}
+				if diff.ScoreDelta <= -5 {
+					return true, "channel monitor surface score dropped from official baseline"
+				}
+				return false, ""
+			}
+		}
+	}
+	if !channelReportOK(report) {
+		return true, "channel monitor surface reported non-ok"
+	}
+	return false, ""
 }
 
 func (r *MonitorRunner) runIntelligence(ctx context.Context, target *Target, model string, run *MonitorRun) {
@@ -255,7 +281,7 @@ func (r *MonitorRunner) deriveStatus(run *MonitorRun) Status {
 
 	channelStatus := StatusUnknown
 	if run.Report != nil {
-		channelStatus = StatusFromScore(run.Report.Score)
+		channelStatus = r.channelStatus(run)
 	} else if run.Error != "" {
 		channelStatus = StatusCritical
 	}
@@ -284,6 +310,27 @@ func (r *MonitorRunner) deriveStatus(run *MonitorRun) Status {
 		}
 		return intelligenceStatus
 	}
+}
+
+func (r *MonitorRunner) channelStatus(run *MonitorRun) Status {
+	if run == nil || run.Report == nil {
+		return StatusUnknown
+	}
+	if run.BaselineDiff != nil && run.BaselineDiff.Channel != nil {
+		diff := run.BaselineDiff.Channel
+		if diff.OverlappingChecks == 0 {
+			return StatusUnknown
+		}
+		switch {
+		case diff.RegressedChecks >= 3 || diff.ScoreDelta <= -20:
+			return StatusCritical
+		case diff.RegressedChecks > 0 || diff.ScoreDelta <= -5:
+			return StatusWarning
+		default:
+			return StatusOK
+		}
+	}
+	return StatusFromScore(run.Report.Score)
 }
 
 func (r *MonitorRunner) intelligenceStatus(run *MonitorRun) Status {

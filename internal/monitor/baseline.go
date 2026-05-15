@@ -29,6 +29,7 @@ type Baseline struct {
 	ID                 string                  `json:"id"`
 	Name               string                  `json:"name"`
 	Model              string                  `json:"model"`
+	Profile            string                  `json:"profile,omitempty"`
 	ThinkingEffort     string                  `json:"thinking_effort"`
 	Effort             string                  `json:"effort,omitempty"`
 	ThinkingMode       string                  `json:"thinking_mode,omitempty"`
@@ -44,6 +45,7 @@ type BaselineCreateRequest struct {
 	BaseURL        string `json:"base_url"`
 	APIKey         string `json:"api_key"`
 	Model          string `json:"model"`
+	Profile        string `json:"profile,omitempty"`
 	ThinkingEffort string `json:"thinking_effort,omitempty"`
 	Dataset        string `json:"dataset,omitempty"`
 	Effort         string `json:"effort,omitempty"`

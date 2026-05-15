@@ -29,48 +29,59 @@ func checkStructuredSchemaMatch(body map[string]any) CheckResult {
 	text := collectResponseText(body)
 	if text == "" {
 		return CheckResult{Name: "structured_schema_match", Pass: false,
-			Expected: "{title, desc} 对象", Actual: "无文本内容",
+			Expected: "{name, title, desc} 对象", Actual: "无文本内容",
 			Detail: "no text content", Fix: "body_rewrite"}
 	}
 	var obj map[string]any
 	if err := json.Unmarshal([]byte(text), &obj); err != nil {
 		return CheckResult{Name: "structured_schema_match", Pass: false,
-			Expected: "{title, desc} 对象", Actual: "非 JSON 对象",
+			Expected: "{name, title, desc} 对象", Actual: "非 JSON 对象",
 			Detail: "not a JSON object", Fix: "body_rewrite"}
 	}
-	title, hasTitle := obj["title"].(string)
-	desc, hasDesc := obj["desc"].(string)
-	if !hasTitle || !hasDesc {
-		var missing []string
-		if !hasTitle {
-			missing = append(missing, "title")
+	required := []string{"name", "title", "desc"}
+	var missing []string
+	for _, k := range required {
+		v, ok := obj[k].(string)
+		if !ok || v == "" {
+			missing = append(missing, k)
 		}
-		if !hasDesc {
-			missing = append(missing, "desc")
-		}
-		return CheckResult{Name: "structured_schema_match", Pass: false,
-			Expected: "{title, desc} 两个字段", Actual: "缺少 " + strings.Join(missing, ", "),
-			Detail: "missing required fields: " + strings.Join(missing, ", "), Fix: "body_rewrite"}
 	}
-	if title == "" || desc == "" {
+	if len(missing) > 0 {
 		return CheckResult{Name: "structured_schema_match", Pass: false,
-			Expected: "title/desc 非空", Actual: "title 或 desc 为空",
-			Detail: "title or desc is empty", Fix: "body_rewrite"}
+			Expected: "{name, title, desc} 三个字段", Actual: "缺少 " + strings.Join(missing, ", "),
+			Detail: "missing required fields: " + strings.Join(missing, ", "), Fix: "body_rewrite"}
 	}
 	extra := 0
 	for k := range obj {
-		if k != "title" && k != "desc" {
+		if k != "name" && k != "title" && k != "desc" {
 			extra++
 		}
 	}
 	if extra > 0 {
 		return CheckResult{Name: "structured_schema_match", Pass: false,
-			Expected: "仅 {title, desc}", Actual: fmt.Sprintf("%d 个多余字段", extra),
+			Expected: "仅 {name, title, desc}", Actual: fmt.Sprintf("%d 个多余字段", extra),
 			Detail: fmt.Sprintf("schema has %d extra fields (additionalProperties should be false)", extra), Fix: "body_rewrite"}
 	}
 	return CheckResult{Name: "structured_schema_match", Pass: true,
-		Expected: "{title, desc}", Actual: "{title, desc}",
-		Detail: "schema match: {title, desc} OK"}
+		Expected: "JSON 字段与 schema 匹配", Actual: "JSON 字段与 schema 匹配",
+		Detail: "schema match: {name, title, desc} OK"}
+}
+
+func checkStructuredNameCorrect(body map[string]any, expectedName string) CheckResult {
+	text := collectResponseText(body)
+	if text == "" {
+		return CheckResult{Name: "structured_name_correct", Pass: false,
+			Expected: "包含 \"" + expectedName + "\"", Actual: "无文本内容",
+			Detail: "no text content", Fix: "body_rewrite"}
+	}
+	if strings.Contains(text, expectedName) {
+		return CheckResult{Name: "structured_name_correct", Pass: true,
+			Expected: "包含 \"" + expectedName + "\"", Actual: "包含 \"" + expectedName + "\"",
+			Detail: "name correct: " + expectedName}
+	}
+	return CheckResult{Name: "structured_name_correct", Pass: false,
+		Expected: "包含 \"" + expectedName + "\"", Actual: truncate(text, 60),
+		Detail: "expected name " + expectedName + " not found in output", Fix: "body_rewrite"}
 }
 
 func checkStructuredStopReason(body map[string]any) CheckResult {

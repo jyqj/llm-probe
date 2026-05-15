@@ -4,21 +4,21 @@ import "detector-service/internal/channeltest/data"
 
 var probePDFExtract = &Probe{
 	ID: "pdf_extract", Label: "PDF 提取探针",
-	Tags:      []string{"heavy"},
-	EstTokens: 25000,
-	Checks:    []string{"pdf_extract"},
-	Run:       (*Runner).runPDFExtract,
+	Tags:       []string{"heavy"},
+	EstTokens:  25000,
+	Checks:     []string{"pdf_extract"},
+	OnlyModels: []string{"claude-sonnet", "claude-opus"},
+	Run:        (*Runner).runPDFExtract,
 }
 
 func (p *Runner) runPDFExtract(targetBase, targetKey, model string) ([]CheckResult, error) {
 	pdfText := data.RandomOCRText(8)
 	pdfB64 := data.GenTestPDFBase64(pdfText)
 
-	body := toJSON(map[string]any{
+	req := map[string]any{
 		"model":      model,
 		"max_tokens": 1024,
 		"stream":     true,
-		"thinking":   map[string]any{"type": "adaptive"},
 		"system":     fullSystem(),
 		"tools":      data.Tools(),
 		"metadata":   genMetadata(),
@@ -41,7 +41,11 @@ func (p *Runner) runPDFExtract(targetBase, targetKey, model string) ([]CheckResu
 				},
 			},
 		},
-	})
+	}
+	if tp := ThinkingParam(model); tp != nil {
+		req["thinking"] = tp
+	}
+	body := toJSON(req)
 
 	resp, err := p.send(targetBase, targetKey, body)
 	if err != nil {

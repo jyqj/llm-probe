@@ -73,15 +73,19 @@ func SaveHealthState(db *sql.DB, hs *monitor.HealthState) error {
 	if db == nil {
 		return nil
 	}
+	ct := hs.CheckType
+	if ct == "" {
+		ct = "channel"
+	}
 	payload, err := json.Marshal(hs)
 	if err != nil {
 		return err
 	}
 	_, err = db.Exec(`INSERT OR REPLACE INTO health_states
-		(target_id, model, status, score, grade, last_check, last_change,
+		(target_id, model, check_type, status, score, grade, last_check, last_change,
 		 consec_fails, consec_ok, payload_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		hs.TargetID, hs.Model, string(hs.Status), hs.Score, hs.Grade,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		hs.TargetID, hs.Model, ct, string(hs.Status), hs.Score, hs.Grade,
 		hs.LastCheck.Format(time.RFC3339), hs.LastChange.Format(time.RFC3339),
 		hs.ConsecFails, hs.ConsecOK, string(payload))
 	return err
@@ -95,11 +99,11 @@ func DeleteHealthStates(db *sql.DB, targetID string) error {
 	return err
 }
 
-func DeleteHealthState(db *sql.DB, targetID, model string) error {
+func DeleteHealthState(db *sql.DB, targetID, model, checkType string) error {
 	if db == nil {
 		return nil
 	}
-	_, err := db.Exec(`DELETE FROM health_states WHERE target_id = ? AND model = ?`, targetID, model)
+	_, err := db.Exec(`DELETE FROM health_states WHERE target_id = ? AND model = ? AND check_type = ?`, targetID, model, checkType)
 	return err
 }
 

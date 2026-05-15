@@ -284,7 +284,7 @@ func (s *Store) triggerRunAsync(upstreamBase, upstreamKey, model string) {
 		}
 		s.logger.Info("auto-channel-test started", "upstream", upstreamBase, "model", model)
 
-		report, err := s.runner.Run(upstreamBase, upstreamKey, model, 2)
+		report, err := s.runner.Run(upstreamBase, upstreamKey, model, 2, "")
 
 		s.mu.Lock()
 		entry.Running = false
@@ -309,8 +309,8 @@ func (s *Store) triggerRunAsync(upstreamBase, upstreamKey, model string) {
 }
 
 // RunSync runs a synchronous channel test for a single model and stores the result.
-func (s *Store) RunSync(upstreamBase, upstreamKey, model, channelName string, concurrency int) (*Report, error) {
-	report, err := s.runner.Run(upstreamBase, upstreamKey, model, concurrency)
+func (s *Store) RunSync(upstreamBase, upstreamKey, model, channelName string, concurrency int, profile string) (*Report, error) {
+	report, err := s.runner.Run(upstreamBase, upstreamKey, model, concurrency, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -324,8 +324,8 @@ func (s *Store) RunSync(upstreamBase, upstreamKey, model, channelName string, co
 }
 
 // RunMultiSync runs tests for multiple models against one target.
-func (s *Store) RunMultiSync(upstreamBase, upstreamKey, channelName string, models []string, concurrency int) ([]*Report, error) {
-	reports, err := s.runner.RunMulti(upstreamBase, upstreamKey, models, concurrency)
+func (s *Store) RunMultiSync(upstreamBase, upstreamKey, channelName string, models []string, concurrency int, profile string) ([]*Report, error) {
+	reports, err := s.runner.RunMulti(upstreamBase, upstreamKey, models, concurrency, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -341,8 +341,8 @@ func (s *Store) RunMultiSync(upstreamBase, upstreamKey, channelName string, mode
 }
 
 // RunSyncCtx runs a synchronous channel test with context for cancellation.
-func (s *Store) RunSyncCtx(ctx context.Context, upstreamBase, upstreamKey, model, channelName string, concurrency int) (*Report, error) {
-	report, err := s.runner.RunCtx(ctx, upstreamBase, upstreamKey, model, concurrency)
+func (s *Store) RunSyncCtx(ctx context.Context, upstreamBase, upstreamKey, model, channelName string, concurrency int, profile string) (*Report, error) {
+	report, err := s.runner.RunCtx(ctx, upstreamBase, upstreamKey, model, concurrency, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -356,8 +356,8 @@ func (s *Store) RunSyncCtx(ctx context.Context, upstreamBase, upstreamKey, model
 }
 
 // RunMultiSyncCtx runs tests for multiple models with context.
-func (s *Store) RunMultiSyncCtx(ctx context.Context, upstreamBase, upstreamKey, channelName string, models []string, concurrency int) ([]*Report, error) {
-	reports, err := s.runner.RunMultiCtx(ctx, upstreamBase, upstreamKey, models, concurrency)
+func (s *Store) RunMultiSyncCtx(ctx context.Context, upstreamBase, upstreamKey, channelName string, models []string, concurrency int, profile string) ([]*Report, error) {
+	reports, err := s.runner.RunMultiCtx(ctx, upstreamBase, upstreamKey, models, concurrency, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +380,7 @@ func (s *Store) RunMultiSyncCtx(ctx context.Context, upstreamBase, upstreamKey, 
 // RunMultiStream runs tests for multiple models with streaming events.
 // The onEvent callback receives probe-level and model-level events.
 // The caller is responsible for emitting the "start" and "done" envelope events.
-func (s *Store) RunMultiStream(ctx context.Context, upstreamBase, upstreamKey, channelName string, models []string, concurrency int, onEvent func(StreamEvent)) ([]*Report, error) {
+func (s *Store) RunMultiStream(ctx context.Context, upstreamBase, upstreamKey, channelName string, models []string, concurrency int, profile string, onEvent func(StreamEvent)) ([]*Report, error) {
 	runGroup := ""
 	if len(models) > 1 {
 		runGroup = fmt.Sprintf("g_%d", time.Now().UnixNano())
@@ -400,7 +400,7 @@ func (s *Store) RunMultiStream(ctx context.Context, upstreamBase, upstreamKey, c
 		s.SetResult(key, r)
 	}
 
-	reports, err := s.runner.RunMultiStream(ctx, upstreamBase, upstreamKey, models, concurrency, func(ev StreamEvent) {
+	reports, err := s.runner.RunMultiStream(ctx, upstreamBase, upstreamKey, models, concurrency, profile, func(ev StreamEvent) {
 		if ev.Type == "model_done" && ev.Report != nil {
 			storeReport(ev.Report)
 		}
@@ -539,10 +539,12 @@ func (s *Store) RetryProbe(ctx context.Context, reportID, probeID, targetKey str
 	target.Checks = checks
 
 	mode := "full"
+	profile := ""
 	if target.Score != nil {
 		mode = target.Score.Mode
+		profile = target.Score.Profile
 	}
-	target.Score = CalculateScore(checks, mode)
+	target.Score = CalculateScore(checks, mode, profile)
 	target.Summary = BuildSummaryWithScore(checks, target.Score)
 	target.Recommended = RecommendFixes(checks)
 	s.mu.Unlock()
@@ -552,6 +554,16 @@ func (s *Store) RetryProbe(ctx context.Context, reportID, probeID, targetKey str
 	}
 
 	return target, nil
+}
+
+// SaveReport re-persists a report to the database (e.g. after enriching with baseline comparison).
+func (s *Store) SaveReport(report *Report) {
+	if report == nil {
+		return
+	}
+	if p := s.persist; p != nil && p.Save != nil {
+		p.logErr("save_channel_report", p.Save(p.DB, report))
+	}
 }
 
 // UpdateHistoryName updates the channel name on an existing history record.

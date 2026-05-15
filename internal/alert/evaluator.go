@@ -46,23 +46,24 @@ func (e *Evaluator) evaluateRule(rule Rule, run *monitor.MonitorRun, state *moni
 		return nil
 	}
 
-	dedupKey := fmt.Sprintf("%s:%s:%s", rule.Name, run.TargetID, run.Model)
+	dedupKey := alertDedupKey(rule.Name, run)
 	if e.store.IsInCooldown(dedupKey, rule.CooldownDuration()) {
 		return nil
 	}
 
 	ev := &Event{
-		ID:       fmt.Sprintf("%d", time.Now().UnixNano()),
-		RuleName: rule.Name,
-		Severity: rule.Severity,
-		Status:   EventFiring,
-		TargetID: run.TargetID,
-		Target:   run.Model,
-		Model:    run.Model,
-		Score:    run.Score,
-		Grade:    run.Grade,
-		FiredAt:  time.Now(),
-		Message:  e.buildMessage(rule, run),
+		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
+		RuleName:  rule.Name,
+		Severity:  rule.Severity,
+		Status:    EventFiring,
+		TargetID:  run.TargetID,
+		Target:    run.TargetID,
+		Model:     run.Model,
+		CheckType: run.CheckType,
+		Score:     run.Score,
+		Grade:     run.Grade,
+		FiredAt:   time.Now(),
+		Message:   e.buildMessage(rule, run),
 	}
 	e.store.RecordEvent(ev)
 	return ev
@@ -131,8 +132,20 @@ func (e *Evaluator) ruleMatches(rule Rule, run *monitor.MonitorRun) bool {
 }
 
 func (e *Evaluator) resolveIfNeeded(rule Rule, run *monitor.MonitorRun) {
-	dedupKey := fmt.Sprintf("%s:%s:%s", rule.Name, run.TargetID, run.Model)
+	dedupKey := alertDedupKey(rule.Name, run)
 	e.store.ResolveEvent(dedupKey)
+}
+
+func alertDedupKey(ruleName string, run *monitor.MonitorRun) string {
+	checkType := ""
+	targetID := ""
+	model := ""
+	if run != nil {
+		checkType = run.CheckType
+		targetID = run.TargetID
+		model = run.Model
+	}
+	return fmt.Sprintf("%s:%s:%s:%s", ruleName, targetID, model, checkType)
 }
 
 func (e *Evaluator) buildMessage(rule Rule, run *monitor.MonitorRun) string {

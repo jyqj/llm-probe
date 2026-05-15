@@ -15,14 +15,19 @@ type DiffReport struct {
 
 // ChannelDiff compares channel check results.
 type ChannelDiff struct {
-	BaselineScore float64         `json:"baseline_score"`
-	CurrentScore  float64         `json:"current_score"`
-	ScoreDelta    float64         `json:"score_delta"`
-	CheckDiffs    []CheckDiffItem `json:"check_diffs,omitempty"`
+	BaselineScore     float64         `json:"baseline_score"`
+	CurrentScore      float64         `json:"current_score"`
+	ScoreDelta        float64         `json:"score_delta"`
+	OverlappingChecks int             `json:"overlapping_checks"`
+	DeviatedChecks    int             `json:"deviated_checks"`
+	RegressedChecks   int             `json:"regressed_checks"`
+	ImprovedChecks    int             `json:"improved_checks"`
+	CheckDiffs        []CheckDiffItem `json:"check_diffs,omitempty"`
 }
 
 // CheckDiffItem records one check's baseline vs current result.
 type CheckDiffItem struct {
+	ProbeID      string `json:"probe_id,omitempty"`
 	Name         string `json:"name"`
 	BaselinePass bool   `json:"baseline_pass"`
 	CurrentPass  bool   `json:"current_pass"`
@@ -63,18 +68,31 @@ func DiffChannel(baseline, current *channeltest.Report) *ChannelDiff {
 
 	baseChecks := make(map[string]bool)
 	for _, c := range baseline.Checks {
-		baseChecks[c.Name] = c.Pass
+		baseChecks[c.ProbeID+":"+c.Name] = c.Pass
 	}
 	for _, c := range current.Checks {
-		bp, exists := baseChecks[c.Name]
+		key := c.ProbeID + ":" + c.Name
+		bp, exists := baseChecks[key]
 		if !exists {
 			continue
 		}
+		deviated := bp != c.Pass
+		diff.OverlappingChecks++
+		if deviated {
+			diff.DeviatedChecks++
+		}
+		if bp && !c.Pass {
+			diff.RegressedChecks++
+		}
+		if !bp && c.Pass {
+			diff.ImprovedChecks++
+		}
 		diff.CheckDiffs = append(diff.CheckDiffs, CheckDiffItem{
+			ProbeID:      c.ProbeID,
 			Name:         c.Name,
 			BaselinePass: bp,
 			CurrentPass:  c.Pass,
-			Deviated:     bp != c.Pass,
+			Deviated:     deviated,
 		})
 	}
 	return diff

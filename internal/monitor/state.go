@@ -7,10 +7,11 @@ import (
 	"detector-service/internal/intelligence"
 )
 
-// HealthState tracks the current health of a target+model pair.
+// HealthState tracks the current health of a target+model+checkType triple.
 type HealthState struct {
 	TargetID    string    `json:"target_id"`
 	Model       string    `json:"model"`
+	CheckType   string    `json:"check_type"`
 	Status      Status    `json:"status"`
 	Score       float64   `json:"score"`
 	Grade       string    `json:"grade"`

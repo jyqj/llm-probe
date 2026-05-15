@@ -23,6 +23,7 @@ type ScoreReport struct {
 	Categories      []CategoryScore `json:"categories"`
 	CriticalPenalty float64         `json:"critical_penalty"`
 	Mode            string          `json:"mode"`
+	Profile         string          `json:"profile,omitempty"`
 	ChecksTotal     int             `json:"checks_total"`
 	ChecksPassed    int             `json:"checks_passed"`
 }
@@ -36,10 +37,18 @@ var infoOnlyChecks = map[string]bool{
 	"cf_ray_format":  true, // Cf-Ray hex format (Cloudflare)
 	"cookie_domain":  true, // Set-Cookie anthropic.com (Cloudflare)
 	"server_header":  true, // Server: cloudflare (Cloudflare)
+	"api_error":      true, // API error indicator (scoring via skipped checks)
 }
 
 // CalculateScore computes a weighted score from check results.
-func CalculateScore(checks []CheckResult, mode string) *ScoreReport {
+// Optional profile overrides which checks are info-only.
+func CalculateScore(checks []CheckResult, mode string, profileIDs ...string) *ScoreReport {
+	profileID := ""
+	if len(profileIDs) > 0 {
+		profileID = profileIDs[0]
+	}
+	excluded := ProfileInfoOnly(profileID)
+
 	// Step 1: Deduplicate checks per category — same name → worst result
 	type dedupKey struct {
 		cat  Category
@@ -47,7 +56,7 @@ func CalculateScore(checks []CheckResult, mode string) *ScoreReport {
 	}
 	deduped := map[dedupKey]CheckResult{}
 	for _, c := range checks {
-		if infoOnlyChecks[c.Name] {
+		if excluded[c.Name] {
 			continue
 		}
 		cat, ok := checkCategoryMap[c.Name]
@@ -155,6 +164,7 @@ func CalculateScore(checks []CheckResult, mode string) *ScoreReport {
 		Categories:      categories,
 		CriticalPenalty: penalty,
 		Mode:            mode,
+		Profile:         profileID,
 		ChecksTotal:     totalChecks,
 		ChecksPassed:    totalPassed,
 	}

@@ -7,6 +7,8 @@ const State = {
   channel: {
     targetBase: '', targetKey: '', channelName: '', concurrency: 2,
     models: ['claude-sonnet-4-6'],
+    profile: '',
+    baselineId: '',
   },
   bench: {
     targetBase: '', targetKey: '', model: 'claude-opus-4-6',
@@ -14,11 +16,14 @@ const State = {
     scope: 'custom', lang: '', category: '', limit: 0, runModel: '',
     intensity: 'high',
     multiIntensity: false, selectedIntensities: [],
+    baselineId: '',
+    pickedTaskIds: [],
   },
   // live runs (not yet persisted to history)
   liveRuns: Object.create(null),   // run_id → {state, reports, events, sse}
   datasets: [],
   currentDataset: '',
+  models: [],
   // monitor
   monitor: { targets: [], states: [], recentRuns: [] },
 };
@@ -283,14 +288,41 @@ function reportSummary(rep) {
   };
 }
 
-/* ─── Model capabilities (mirrors Go model_caps.go) ─── */
-const MODEL_CAPS = {
+/* ─── Model capabilities (loaded from /api/meta/models; fallback for offline UI) ─── */
+const FALLBACK_MODEL_CAPS = {
   'claude-haiku-4-5':  { thinking: true, thinkingMode: 'enabled', effort: [] },
   'claude-sonnet-4-6': { thinking: true, thinkingMode: 'adaptive', effort: ['low','medium','high','max'] },
   'claude-opus-4-5':   { thinking: true, thinkingMode: 'enabled', effort: ['low','medium','high'] },
   'claude-opus-4-6':   { thinking: true, thinkingMode: 'adaptive', effort: ['low','medium','high','max'] },
   'claude-opus-4-7':   { thinking: true, thinkingMode: 'adaptive_only', effort: ['low','medium','high','xhigh','max'] },
 };
+let MODEL_CAPS = Object.assign({}, FALLBACK_MODEL_CAPS);
+
+function modelIDs() {
+  const ids = Object.keys(MODEL_CAPS);
+  return ids.length ? ids : Object.keys(FALLBACK_MODEL_CAPS);
+}
+
+async function ensureModelMeta() {
+  if (State.models && State.models.length) return State.models;
+  try {
+    const data = await api('/api/meta/models');
+    const models = data.models || [];
+    if (models.length) {
+      State.models = models;
+      MODEL_CAPS = {};
+      models.forEach(m => {
+        MODEL_CAPS[m.id] = {
+          thinking: !!m.thinking,
+          thinkingMode: m.thinking_mode || '',
+          effort: m.effort_levels || [],
+        };
+      });
+    }
+  } catch {}
+  return State.models || [];
+}
+
 function getModelCaps(model) {
   if (MODEL_CAPS[model]) return MODEL_CAPS[model];
   for (const prefix in MODEL_CAPS) {

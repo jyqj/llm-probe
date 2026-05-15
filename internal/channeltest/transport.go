@@ -11,6 +11,62 @@ import (
 	"time"
 )
 
+// APIError represents a structured error from the upstream API.
+type APIError struct {
+	StatusCode int    `json:"status_code"`
+	ErrorType  string `json:"error_type"`
+	Message    string `json:"message"`
+	Category   string `json:"category"`
+	RawBody    string `json:"raw_body,omitempty"`
+}
+
+func (e *APIError) Error() string {
+	if e.ErrorType != "" {
+		return fmt.Sprintf("HTTP %d (%s): %s", e.StatusCode, e.ErrorType, e.Message)
+	}
+	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Message)
+}
+
+func classifyAPIError(statusCode int, errorType string) string {
+	switch {
+	case statusCode == 401 || errorType == "authentication_error":
+		return "auth"
+	case statusCode == 403 || errorType == "permission_error":
+		return "forbidden"
+	case statusCode == 429 || errorType == "rate_limit_error":
+		return "rate_limit"
+	case statusCode == 529 || errorType == "overloaded_error":
+		return "overloaded"
+	case statusCode == 400 || errorType == "invalid_request_error":
+		return "client"
+	case statusCode >= 500:
+		return "server"
+	default:
+		return "unknown"
+	}
+}
+
+func parseAPIError(statusCode int, body []byte) *APIError {
+	apiErr := &APIError{
+		StatusCode: statusCode,
+		RawBody:    truncate(string(body), 500),
+	}
+	var envelope struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &envelope) == nil && envelope.Error.Type != "" {
+		apiErr.ErrorType = envelope.Error.Type
+		apiErr.Message = envelope.Error.Message
+	} else {
+		apiErr.Message = truncate(string(body), 200)
+	}
+	apiErr.Category = classifyAPIError(statusCode, apiErr.ErrorType)
+	return apiErr
+}
+
 func (p *Runner) send(targetBase, targetKey string, body []byte) (*http.Response, error) {
 	url := strings.TrimRight(targetBase, "/") + "/v1/messages"
 	ctx := p.ctx
@@ -53,15 +109,20 @@ func (p *Runner) send(targetBase, targetKey string, body []byte) (*http.Response
 		if resp.StatusCode != 200 {
 			b, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			p.recordExchange(body, b, resp.StatusCode)
-			return nil, fmt.Errorf("upstream %d: %s", resp.StatusCode, truncate(string(b), 200))
+			p.recordExchange(body, b, resp.StatusCode, resp.Header)
+			return nil, parseAPIError(resp.StatusCode, b)
 		}
 		if p.recording {
-			p.recordExchange(body, nil, 200)
+			p.recordExchange(body, nil, 200, resp.Header)
 		}
 		return resp, nil
 	}
-	return nil, fmt.Errorf("upstream 429: rate limited after retries")
+	return nil, &APIError{
+		StatusCode: 429,
+		ErrorType:  "rate_limit_error",
+		Message:    "rate limited after retries",
+		Category:   "rate_limit",
+	}
 }
 
 // recordStreamResult updates the last exchange's response with the merged SSE result.

@@ -29,6 +29,7 @@ function stopMonitorPoll() {
 }
 
 async function renderMonitorDashboard() {
+  await ensureModelMeta();
   stopMonitorPoll();
   setCrumb([{ label: 'Monitor', href: '#/monitor' }, { cur: '监控面板' }],
     el('div', { class: 'crumb-actions' },
@@ -479,7 +480,7 @@ async function openTargetDrawer(existingTarget) {
 }
 
 function buildMonitorModelChips(models) {
-  const ALL = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7', 'claude-opus-4-5', 'claude-haiku-4-5'];
+  const ALL = modelIDs();
   const set = new Set(models);
   const wrap = el('div', { class: 'chip-set' });
   ALL.forEach(m => {
@@ -1015,7 +1016,7 @@ async function openBaselineDrawer() {
     style: { width: '100%', background: 'transparent', border: 'none', padding: '0' }
   })));
   const dl = el('datalist', { id: 'blModelList' });
-  ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7', 'claude-haiku-4-5'].forEach(m => dl.appendChild(el('option', { value: m })));
+  modelIDs().forEach(m => dl.appendChild(el('option', { value: m })));
   body.appendChild(dl);
 
   const effortSeg = el('div', { class: 'seg', style: { width: 'fit-content' } });

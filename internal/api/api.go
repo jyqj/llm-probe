@@ -25,6 +25,7 @@ type API struct {
 	monitorRunner  *monitor.MonitorRunner
 	baselineStore  *monitor.BaselineStore
 	channelRunner  *channeltest.Runner
+	keywordStore   *channeltest.KeywordStore
 	alertStore     *alert.Store
 	alertEvaluator *alert.Evaluator
 	alertNotifier  *alert.Notifier
@@ -51,6 +52,11 @@ func (a *API) SetMonitor(store *monitor.Store, runner *monitor.MonitorRunner, ba
 	a.monitorRunner = runner
 	a.baselineStore = baselineStore
 	a.channelRunner = channelRunner
+}
+
+// SetKeywords injects the keyword store.
+func (a *API) SetKeywords(store *channeltest.KeywordStore) {
+	a.keywordStore = store
 }
 
 // SetAlerts injects the alert subsystem.

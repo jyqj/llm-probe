@@ -108,14 +108,7 @@ func checkModelName(body map[string]any, expectedModel string) CheckResult {
 			Actual:   model,
 			Detail:   "model=" + model}
 	}
-	// Partial match: check if the core model name is in there (e.g. opus-4-6 vs claude-opus-4-6-20250415)
-	if strings.Contains(model, "opus") && strings.Contains(expectedModel, "opus") {
-		return CheckResult{Name: "model_name", Pass: true,
-			Expected: expectedModel,
-			Actual:   model,
-			Detail:   "model=" + model + " (variant of requested)"}
-	}
-	if strings.Contains(model, "sonnet") && strings.Contains(expectedModel, "sonnet") {
+	if strings.HasPrefix(model, expectedModel) {
 		return CheckResult{Name: "model_name", Pass: true,
 			Expected: expectedModel,
 			Actual:   model,

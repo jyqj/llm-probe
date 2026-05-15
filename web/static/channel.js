@@ -16,6 +16,12 @@
 
 /* ─── New-run config view ─── */
 function renderChannelConfig() {
+  ensureModelMeta().then(() => {
+    const holder = document.getElementById('channelModelChips');
+    if (holder) {
+      holder.replaceWith(buildModelChips());
+    }
+  });
   setCrumb([{ label: 'Channel', href: '#/channel' }, { cur: '新建检测' }],
     el('div', { class: 'crumb-actions' },
       btn('查看历史', { onClick: () => location.hash = '#/channel/history', icon: 'history', size: 'sm', ghost: true })
@@ -54,6 +60,8 @@ function buildChannelConfigPanel() {
         style: { width: '100%', background: 'transparent', border: 'none', padding: '0' }
       })),
       buildField('MODELS', buildModelChips()),
+      buildField('PROFILE', buildProfileSelect()),
+      buildField('BASELINE', buildBaselineSelect()),
       buildField('CONCURRENCY', el('input', {
         type: 'number', min: 0, max: 10, value: C.concurrency, class: 'mono',
         style: { width: '70px', background: 'transparent', border: 'none', padding: '0' },
@@ -82,9 +90,9 @@ function buildField(label, input) {
 }
 
 function buildModelChips() {
-  const ALL = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7', 'claude-opus-4-5', 'claude-haiku-4-5'];
+  const ALL = modelIDs();
   const set = new Set(State.channel.models);
-  const wrap = el('div', { class: 'chip-set' });
+  const wrap = el('div', { class: 'chip-set', id: 'channelModelChips' });
   ALL.forEach(m => {
     const lbl = el('label', { class: 'chip' });
     const cb = el('input', { type: 'checkbox', value: m });
@@ -99,6 +107,47 @@ function buildModelChips() {
     wrap.appendChild(lbl);
   });
   return wrap;
+}
+
+function buildProfileSelect() {
+  const profiles = [
+    { id: '', label: '自动 (Console 标准)' },
+    { id: 'console', label: 'Console 直连' },
+    { id: 'bedrock', label: 'AWS Bedrock' },
+    { id: 'vertex', label: 'Google Vertex AI' },
+    { id: 'max', label: 'Max 订阅' },
+  ];
+  const sel = el('select', {
+    class: 'mono',
+    style: { background: 'transparent', border: 'none', padding: '0', color: 'var(--ink-1)' },
+    onchange: e => { State.channel.profile = e.target.value; },
+  });
+  profiles.forEach(p => {
+    const opt = el('option', { value: p.id }, p.label);
+    if (p.id === (State.channel.profile || '')) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  return sel;
+}
+
+function buildBaselineSelect() {
+  const sel = el('select', {
+    class: 'mono',
+    style: { background: 'transparent', border: 'none', padding: '0', color: 'var(--ink-1)' },
+    onchange: e => { State.channel.baselineId = e.target.value; },
+  });
+  sel.appendChild(el('option', { value: '' }, '无 (不对比)'));
+  api('/api/monitor/baselines').then(data => {
+    if (data && data.baselines) {
+      data.baselines.forEach(b => {
+        const label = (b.name || b.id) + ' · ' + b.model + (b.profile ? ' [' + b.profile + ']' : '');
+        const opt = el('option', { value: b.id }, label);
+        if (b.id === State.channel.baselineId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+  });
+  return sel;
 }
 
 /* ─── Kick off a run ─── */
@@ -116,6 +165,8 @@ async function kickoffChannelRun() {
     models:      C.models,
     channel_name: C.channelName,
     concurrency: C.concurrency,
+    profile:     C.profile || '',
+    baseline_id: C.baselineId || undefined,
   };
 
   State.liveRuns[tempId] = {
@@ -426,6 +477,11 @@ function renderRunPage(runId, focusedModel, anchor) {
   if (run.state === 'running') {
     actions.appendChild(btn('取消', { icon: 'stop', size: 'sm', danger: true, onClick: () => cancelChannelRun(runId) }));
   } else {
+    const failedProbes = countFailedProbes(run, focusedModel);
+    if (failedProbes > 0) {
+      actions.appendChild(btn('重试失败 (' + failedProbes + ')', { icon: 'refresh', size: 'sm',
+        onClick: () => retryAllFailedProbes(runId, focusedModel) }));
+    }
     if (run.payload) actions.appendChild(btn('重新运行', { icon: 'refresh', size: 'sm', ghost: true, onClick: () => rerunChannel(runId) }));
     actions.appendChild(btn('复制失败为 MD', { icon: 'copy', size: 'sm', ghost: true, onClick: () => copyFailuresMd(runId, focusedModel) }));
     actions.appendChild(btn('导出 JSON', { icon: 'download', size: 'sm', ghost: true, onClick: () => exportRunJson(runId) }));
@@ -805,11 +861,144 @@ function renderReportBanner(run) {
   );
 }
 
+function renderAPIErrorBanner(errors) {
+  const cats = {};
+  errors.forEach(e => { cats[e.category] = (cats[e.category] || 0) + 1; });
+  const catLabels = { auth: '认证错误', forbidden: '权限不足', rate_limit: '频率限制', overloaded: '服务过载', client: '请求错误', server: '服务端错误', unknown: '未知错误' };
+
+  const panel = el('div', { class: 'panel', style: { marginBottom: '12px', borderColor: 'var(--bad-line)' } });
+  panel.appendChild(el('div', { class: 'panel-head', style: { background: 'var(--bad-soft)', borderColor: 'var(--bad-line)' } },
+    el('h3', { style: { color: 'var(--bad-ink)' } }, 'API 错误'),
+    el('span', { class: 'meta', style: { color: 'var(--bad-ink)' } },
+      errors.length + ' 个探针遇到错误 · 后续检查已跳过'),
+  ));
+
+  const body = el('div', { class: 'panel-body', style: { padding: '0' } });
+  errors.forEach(e => {
+    const statusClass = e.status_code >= 500 || e.status_code === 529 ? 'err-server' : 'err-client';
+    body.appendChild(el('div', { class: 'api-error-row', style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 14px', borderBottom: '1px solid var(--line-soft)' } },
+      el('span', { class: 'mono', style: { color: 'var(--bad-ink)', fontWeight: 700, minWidth: '42px' } }, String(e.status_code)),
+      el('span', { class: 'pill pill-bad', style: { fontSize: '10px' } }, catLabels[e.category] || e.category),
+      el('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--ink-3)' } }, e.probe_id),
+      el('span', { style: { flex: 1, fontSize: '11px', color: 'var(--ink-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, e.message || e.error_type || ''),
+    ));
+  });
+  panel.appendChild(body);
+  return panel;
+}
+
+function renderChannelIdentBanner(hits) {
+  const channels = {};
+  hits.forEach(h => { channels[h.channel] = (channels[h.channel] || []).concat(h); });
+
+  const panel = el('div', { class: 'panel', style: { marginBottom: '12px', borderColor: 'var(--warn-line)' } });
+  panel.appendChild(el('div', { class: 'panel-head', style: { background: 'var(--warn-soft)', borderColor: 'var(--warn-line)' } },
+    el('h3', { style: { color: 'var(--warn-ink)' } }, '渠道溯源'),
+    el('span', { class: 'meta', style: { color: 'var(--warn-ink)' } },
+      '检测到 ' + Object.keys(channels).length + ' 个渠道特征 · ' + hits.length + ' 处匹配'),
+  ));
+
+  const body = el('div', { class: 'panel-body', style: { padding: '0' } });
+  hits.forEach(h => {
+    body.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 14px', borderBottom: '1px solid var(--line-soft)' } },
+      el('span', { class: 'pill pill-warn', style: { fontSize: '10px', flexShrink: 0 } }, h.channel),
+      el('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--ink-3)', flexShrink: 0 } }, h.source),
+      el('span', { class: 'mono', style: { fontSize: '10px', color: 'var(--ink-4)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, h.context || h.keyword),
+    ));
+  });
+  panel.appendChild(body);
+  return panel;
+}
+
+function renderChannelBaselineComparison(comp) {
+  const relScore = Math.round(comp.relative_score * 10) / 10;
+  const delta = Math.round(comp.score_delta * 100) / 100;
+  const deltaSign = delta >= 0 ? '+' : '';
+  const color = relScore >= 90 ? 'var(--good)' : relScore >= 70 ? 'var(--warn)' : 'var(--bad)';
+  const inkColor = relScore >= 90 ? 'var(--good-ink)' : relScore >= 70 ? 'var(--warn-ink)' : 'var(--bad-ink)';
+
+  const panel = el('div', { class: 'panel', style: { marginBottom: '12px', borderColor: color } });
+  panel.appendChild(el('div', { class: 'panel-head', style: { borderColor: color } },
+    el('h3', null, '基线对比'),
+    el('span', { class: 'meta' }, '与 ' + (comp.baseline_name || comp.baseline_id) + (comp.baseline_profile ? ' [' + comp.baseline_profile + ']' : '') + ' 对比'),
+    el('div', { class: 'spacer' }),
+    el('span', { class: 'mono', style: { fontSize: '18px', fontWeight: 700, color: inkColor } }, relScore + '%'),
+    el('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--ink-3)', marginLeft: '6px' } }, '相对基线'),
+  ));
+
+  const body = el('div', { class: 'panel-body' });
+  const summary = el('div', { style: { display: 'flex', gap: '24px', padding: '8px 0', flexWrap: 'wrap' } });
+  summary.appendChild(el('div', null,
+    el('div', { class: 'meta', style: { fontSize: '10px' } }, 'BASELINE'),
+    el('div', { class: 'mono', style: { fontSize: '14px' } }, Math.round(comp.baseline_score * 100) / 100),
+  ));
+  summary.appendChild(el('div', null,
+    el('div', { class: 'meta', style: { fontSize: '10px' } }, 'CURRENT'),
+    el('div', { class: 'mono', style: { fontSize: '14px' } }, Math.round(comp.current_score * 100) / 100),
+  ));
+  summary.appendChild(el('div', null,
+    el('div', { class: 'meta', style: { fontSize: '10px' } }, 'DELTA'),
+    el('div', { class: 'mono', style: { fontSize: '14px', color: inkColor } }, deltaSign + delta),
+  ));
+  summary.appendChild(el('div', null,
+    el('div', { class: 'meta', style: { fontSize: '10px' } }, 'CHECKS'),
+    el('div', { class: 'mono', style: { fontSize: '14px' } }, comp.overlapping_checks + ' 重叠 / ' + comp.deviated_checks + ' 偏离'),
+  ));
+  body.appendChild(summary);
+
+  if (comp.check_comparisons && comp.check_comparisons.length > 0) {
+    const deviated = comp.check_comparisons.filter(c => c.deviated);
+    if (deviated.length > 0) {
+      const list = el('div', { style: { borderTop: '1px solid var(--line)', paddingTop: '8px', marginTop: '8px' } });
+      list.appendChild(el('div', { class: 'meta', style: { marginBottom: '6px', fontSize: '10px', color: 'var(--warn-ink)' } },
+        deviated.length + ' 个检查项与基线不一致'));
+      deviated.slice(0, 12).forEach(c => {
+        const baseIcon = c.baseline_pass ? '✓' : '✗';
+        const curIcon = c.current_pass ? '✓' : '✗';
+        const curColor = c.current_pass ? 'var(--good-ink)' : 'var(--bad-ink)';
+        list.appendChild(el('div', { style: { display: 'flex', gap: '8px', padding: '3px 0', fontSize: '11px', alignItems: 'center' } },
+          el('span', { class: 'mono', style: { width: '180px', overflow: 'hidden', textOverflow: 'ellipsis' } }, c.label || c.name),
+          el('span', { class: 'mono', style: { color: 'var(--ink-3)' } }, baseIcon),
+          el('span', null, '→'),
+          el('span', { class: 'mono', style: { color: curColor, fontWeight: 600 } }, curIcon),
+          el('span', { class: 'mono', style: { fontSize: '10px', color: 'var(--ink-4)' } }, c.category || ''),
+        ));
+      });
+      if (deviated.length > 12) {
+        list.appendChild(el('div', { class: 'meta', style: { fontSize: '10px', textAlign: 'center', padding: '4px' } },
+          '+ ' + (deviated.length - 12) + ' more'));
+      }
+      body.appendChild(list);
+    } else {
+      body.appendChild(el('div', { style: { color: 'var(--good-ink)', fontSize: '11px', padding: '8px 0', borderTop: '1px solid var(--line)' } },
+        '✓ 所有重叠检查项与基线一致'));
+    }
+  }
+
+  panel.appendChild(body);
+  return panel;
+}
+
 function renderModelDetail(run, model, runId, anchor) {
   const wrap = document.createDocumentFragment();
   const pm = run.perModel[model] || { status: 'pending', probes: {}, probeOrder: [] };
   const rep = pm.report;
   const sum = rep ? reportSummary(rep) : null;
+
+  // ─── API error banner (prominent, above everything) ───
+  if (rep && rep.errors && rep.errors.length > 0) {
+    wrap.appendChild(renderAPIErrorBanner(rep.errors));
+  }
+
+  // ─── Channel identification banner ───
+  if (rep && rep.identified_channels && rep.identified_channels.length > 0) {
+    wrap.appendChild(renderChannelIdentBanner(rep.identified_channels));
+  }
+
+  // ─── Channel baseline comparison ───
+  if (rep && rep.baseline_comparison) {
+    wrap.appendChild(renderChannelBaselineComparison(rep.baseline_comparison));
+  }
 
   // ─── verdict-hero (first thing user sees) ───
   if (sum) {
@@ -1284,6 +1473,65 @@ function rerunChannel(runId) {
   State.channel.models = run.payload.models || [run.payload.model];
   State.channel.concurrency = run.payload.concurrency || 0;
   kickoffChannelRun();
+}
+
+/* ─── Channel: retry all failed probes ─── */
+function countFailedProbes(run, model) {
+  const pm = run.perModel[model];
+  if (!pm || !pm.report) return 0;
+  let count = 0;
+  for (const pid of pm.probeOrder) {
+    const probe = pm.probes[pid];
+    if (!probe || !probe.checks) continue;
+    if (probe.checks.some(c => !c.pass)) count++;
+  }
+  return count;
+}
+
+async function retryAllFailedProbes(runId, model) {
+  const run = State.liveRuns[runId];
+  if (!run) return;
+  const pm = run.perModel[model];
+  if (!pm || !pm.report) return;
+
+  const reportId = pm.report.id || runId;
+  const targetKey = run.payload ? run.payload.target_key : State.channel.targetKey;
+  if (!targetKey) { toast('需要 API Key 才能重试', 'bad'); return; }
+
+  const failedPids = [];
+  for (const pid of pm.probeOrder) {
+    const probe = pm.probes[pid];
+    if (probe && probe.checks && probe.checks.some(c => !c.pass)) failedPids.push(pid);
+  }
+  if (failedPids.length === 0) { toast('无失败探针', 'good'); return; }
+
+  toast('正在重试 ' + failedPids.length + ' 个失败探针…');
+
+  for (const pid of failedPids) {
+    if (pm.probes[pid]) pm.probes[pid]._retrying = true;
+  }
+  maybeRerender(runId);
+
+  for (const pid of failedPids) {
+    try {
+      const data = await api('/api/channel/history/' + encodeURIComponent(reportId) + '/probe/' + encodeURIComponent(pid) + '/retry', {
+        method: 'POST',
+        body: JSON.stringify({ target_key: targetKey }),
+      });
+      if (data.probe) {
+        data.probe.state = 'done';
+        data.probe._retrying = false;
+        pm.probes[pid] = data.probe;
+      }
+      if (data.score && pm.report) pm.report.score = data.score;
+      if (data.checks && pm.report) pm.report.checks = data.checks;
+    } catch (e) {
+      if (pm.probes[pid]) pm.probes[pid]._retrying = false;
+      toast('重试 ' + pid + ' 失败: ' + e.message, 'bad');
+    }
+    maybeRerender(runId);
+  }
+  toast('所有失败探针重试完成', 'good');
 }
 
 /* ─── micro: button helper ─── */

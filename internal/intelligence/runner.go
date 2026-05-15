@@ -153,6 +153,34 @@ func (r *Runner) run(ctx context.Context, ds Dataset, req RunRequest, onEvent fu
 	return report, nil
 }
 
+// RunSingleTask runs one task and returns the result (used for retry).
+func (r *Runner) RunSingleTask(ctx context.Context, req RunRequest, task Task) TaskRunResult {
+	res := TaskRunResult{Task: task.Summary(false), Rubric: task.Rubric}
+	start := time.Now()
+	taskCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	answer, err := r.ask(taskCtx, req, task.Prompt)
+	cancel()
+	res.ElapsedMs = time.Since(start).Milliseconds()
+	if err != nil {
+		res.Error = err.Error()
+	} else {
+		res.Answer = answer
+		expected := task.ReferenceAnswer
+		evalType := ""
+		if task.Metadata != nil {
+			evalType = task.Metadata["eval_type"]
+		}
+		er := eval.EvaluateTaskResult(answer, expected, evalType)
+		if er.EvalType != "manual" {
+			res.Pass = &er.Pass
+			res.Score = &er.Score
+			res.EvalType = er.EvalType
+			res.JudgeReason = er.JudgeReason
+		}
+	}
+	return res
+}
+
 func (r *Runner) ask(ctx context.Context, runReq RunRequest, prompt string) (string, error) {
 	maxTok := 4096
 	if runReq.MaxTokens > 0 {
@@ -208,7 +236,8 @@ func (r *Runner) ask(ctx context.Context, runReq RunRequest, prompt string) (str
 		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("target returned HTTP %d: %s", resp.StatusCode, truncateStr(string(data), 512))
+		errType := classifyHTTPError(resp.StatusCode)
+		return "", fmt.Errorf("[%s] HTTP %d: %s", errType, resp.StatusCode, truncateStr(string(data), 512))
 	}
 	return extractText(data), nil
 }
@@ -247,6 +276,25 @@ func extractText(data []byte) string {
 		return strings.Join(parts, "\n")
 	}
 	return string(data)
+}
+
+func classifyHTTPError(statusCode int) string {
+	switch {
+	case statusCode == 401:
+		return "auth"
+	case statusCode == 403:
+		return "forbidden"
+	case statusCode == 429:
+		return "rate_limit"
+	case statusCode == 529:
+		return "overloaded"
+	case statusCode == 400:
+		return "client"
+	case statusCode >= 500:
+		return "server"
+	default:
+		return "unknown"
+	}
 }
 
 func truncateStr(s string, n int) string {

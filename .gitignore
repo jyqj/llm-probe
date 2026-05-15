@@ -52,3 +52,4 @@ detector_captures/
 internal/benchmark/sweatlas/data/*.csv
 internal/intelligence/datasets/sweatlas/data/*.csv
 detector-service-linux
+docs/channel-probes/baselines/claude-console/benchmark/*_default.json

@@ -10,6 +10,7 @@
 
 /* ─── New-run config view ─── */
 async function renderBenchConfig() {
+  await ensureModelMeta();
   setCrumb([{ label: 'Benchmark', href: '#/bench' }, { cur: '新建运行' }],
     el('div', { class: 'crumb-actions' },
       btn('查看历史', { onClick: () => location.hash = '#/bench/history', icon: 'history', size: 'sm', ghost: true })
@@ -115,7 +116,7 @@ function buildBenchConfigBody() {
 
 /* ─── Model chip selector (like channel page) ─── */
 function buildBenchModelChips() {
-  const ALL = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7', 'claude-opus-4-5', 'claude-haiku-4-5'];
+  const ALL = modelIDs();
   const B = State.bench;
   const wrap = el('div', { class: 'chip-set' });
   ALL.forEach(m => {
@@ -186,7 +187,7 @@ function buildRunConfigContent() {
   // Scope
   frag.appendChild(el('div', { style: { borderTop: '1px solid var(--line)', margin: '14px 0 10px', opacity: '.4' } }));
   const scopeSeg = el('div', { class: 'seg', style: { width: 'fit-content' } });
-  [['all', '全量'], ['custom', '自定义筛选']].forEach(([v, lbl]) => {
+  [['all', '全量'], ['custom', '自定义筛选'], ['pick', '选择题目']].forEach(([v, lbl]) => {
     scopeSeg.appendChild(el('button', { class: B.scope === v ? 'active' : '',
       onclick: () => { B.scope = v; rebuildRunConfig(); } }, lbl));
   });
@@ -203,13 +204,58 @@ function buildRunConfigContent() {
       oninput: e => { B.limit = parseInt(e.target.value) || 0; },
       class: 'mono', style: { width: '120px', background: 'transparent', border: 'none', padding: '0' } })));
   }
+  if (B.scope === 'pick') {
+    if (!B.pickedTaskIds) B.pickedTaskIds = [];
+    const pickerWrap = el('div', { class: 'task-picker-summary' });
+    pickerWrap.appendChild(el('span', { class: 'mono', style: { fontSize: '12px' } },
+      B.pickedTaskIds.length > 0 ? B.pickedTaskIds.length + ' 题已选' : '未选择'));
+    pickerWrap.appendChild(el('div', { class: 'spacer' }));
+    pickerWrap.appendChild(btn('浏览题库', { icon: 'search', size: 'sm', onClick: () => openTaskPicker() }));
+    if (B.pickedTaskIds.length > 0) {
+      pickerWrap.appendChild(btn('清空', { icon: 'x', size: 'sm', ghost: true, onClick: () => { B.pickedTaskIds = []; rebuildRunConfig(); } }));
+    }
+    frag.appendChild(buildField('TASKS', pickerWrap));
+    if (B.pickedTaskIds.length > 0) {
+      const preview = el('div', { class: 'picked-tags' });
+      B.pickedTaskIds.slice(0, 20).forEach(id => {
+        preview.appendChild(el('span', { class: 'itag itag-info', style: { cursor: 'pointer' },
+          onclick: () => { B.pickedTaskIds = B.pickedTaskIds.filter(t => t !== id); rebuildRunConfig(); } },
+          id.length > 24 ? id.slice(0, 22) + '…' : id, ' ×'));
+      });
+      if (B.pickedTaskIds.length > 20) preview.appendChild(el('span', { class: 'muted' }, '+ ' + (B.pickedTaskIds.length - 20)));
+      frag.appendChild(preview);
+    }
+  }
 
   frag.appendChild(buildField('CONCURRENCY', el('input', { type: 'number', min: 1, max: 20,
     value: B.concurrency, class: 'mono',
     oninput: e => { B.concurrency = parseInt(e.target.value) || 1; },
     style: { width: '80px', background: 'transparent', border: 'none', padding: '0' } })));
 
+  frag.appendChild(buildField('BASELINE', buildBenchBaselineSelect()));
+
   return frag;
+}
+
+function buildBenchBaselineSelect() {
+  const sel = el('select', {
+    class: 'mono',
+    style: { background: 'transparent', border: 'none', padding: '0', color: 'var(--ink-1)' },
+    onchange: e => { State.bench.baselineId = e.target.value; },
+  });
+  sel.appendChild(el('option', { value: '' }, '无 (不对比基线)'));
+  api('/api/monitor/baselines').then(data => {
+    if (data && data.baselines) {
+      data.baselines.forEach(b => {
+        if (!b.intelligence_report) return;
+        const label = (b.name || b.id) + ' · ' + b.model + (b.effort ? ' [' + b.effort + ']' : '');
+        const opt = el('option', { value: b.id }, label);
+        if (b.id === State.bench.baselineId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+  });
+  return sel;
 }
 
 function rebuildRunConfig() {
@@ -344,11 +390,15 @@ async function kickoffBenchRun() {
     concurrency: B.concurrency, thinking: params.thinking,
     effort: params.effort || undefined,
     thinking_mode: params.thinkingMode !== 'off' ? params.thinkingMode : undefined,
+    baseline_id: B.baselineId || undefined,
   };
   if (B.scope === 'custom') {
     if (B.lang) payload.language = B.lang;
     if (B.category) payload.category = B.category;
     if (B.limit > 0) payload.limit = B.limit;
+  }
+  if (B.scope === 'pick' && B.pickedTaskIds && B.pickedTaskIds.length > 0) {
+    payload.task_ids = B.pickedTaskIds;
   }
 
   State.liveRuns[tempId] = {
@@ -411,11 +461,15 @@ async function kickoffMultiIntensityRun() {
       concurrency: B.concurrency, thinking: params.thinking,
       effort: params.effort || undefined,
       thinking_mode: params.thinkingMode !== 'off' ? params.thinkingMode : undefined,
+      baseline_id: B.baselineId || undefined,
     };
     if (B.scope === 'custom') {
       if (B.lang) payload.language = B.lang;
       if (B.category) payload.category = B.category;
       if (B.limit > 0) payload.limit = B.limit;
+    }
+    if (B.scope === 'pick' && B.pickedTaskIds && B.pickedTaskIds.length > 0) {
+      payload.task_ids = B.pickedTaskIds;
     }
 
     State.liveRuns[batchId].subRuns[intensity] = {
@@ -654,6 +708,10 @@ function renderBenchRunPage(runId) {
   if (run.state === 'running') {
     actions.appendChild(btn('取消', { icon: 'stop', size: 'sm', danger: true, onClick: () => cancelBenchRun(runId) }));
   } else {
+    const failedCount = run.results.filter(r => r.error || (r.pass === false)).length;
+    if (failedCount > 0 && run.finalReport) {
+      actions.appendChild(btn('重试失败 (' + failedCount + ')', { icon: 'refresh', size: 'sm', onClick: () => retryBenchFailed(runId) }));
+    }
     if (run.payload) actions.appendChild(btn('重新运行', { icon: 'refresh', size: 'sm', ghost: true, onClick: () => rerunBench(runId) }));
     actions.appendChild(btn('导出 JSON', { icon: 'download', size: 'sm', ghost: true,
       onClick: () => downloadJSON(run.finalReport || run, 'bench-' + runId + '.json') }));
@@ -667,12 +725,15 @@ function renderBenchRunPage(runId) {
 
   if (run.state === 'running') {
     v.appendChild(renderTaskGrid(run));
-    v.appendChild(renderBenchResultsList(run));
+    v.appendChild(renderBenchResultsList(run, runId));
   } else {
     v.appendChild(renderBenchReportBanner(run));
+    if (run.finalReport && run.finalReport.baseline_comparison) {
+      v.appendChild(renderBaselineComparison(run.finalReport.baseline_comparison));
+    }
     v.appendChild(renderBenchStats(run));
     v.appendChild(renderBenchCategoryBreakdown(run));
-    v.appendChild(renderBenchResultsList(run));
+    v.appendChild(renderBenchResultsList(run, runId));
   }
 }
 
@@ -845,7 +906,7 @@ function renderTaskGrid(run) {
       grid.appendChild(el('div', {
         class: 'task-cell ' + state,
         title,
-        onclick: result ? () => openBenchResultModal(result) : null,
+        onclick: result ? () => openBenchResultModal(result, run) : null,
       }));
     }
     body.appendChild(grid);
@@ -857,6 +918,68 @@ function renderTaskGrid(run) {
     el('span', null, 'ELAPSED ' + (run.startedAt ? fmtMs(Date.now() - run.startedAt) : '—')),
     run.effort ? el('span', null, 'EFFORT ' + run.effort) : null,
   ));
+
+  panel.appendChild(body);
+  return panel;
+}
+
+function renderBaselineComparison(comp) {
+  const relScore = Math.round(comp.relative_score * 10) / 10;
+  const delta = Math.round((comp.current_score - comp.baseline_score) * 100) / 100;
+  const deltaSign = delta >= 0 ? '+' : '';
+  const color = relScore >= 90 ? 'var(--good)' : relScore >= 70 ? 'var(--warn)' : 'var(--bad)';
+  const inkColor = relScore >= 90 ? 'var(--good-ink)' : relScore >= 70 ? 'var(--warn-ink)' : 'var(--bad-ink)';
+
+  const panel = el('div', { class: 'panel', style: { marginBottom: '12px', borderColor: color } });
+  panel.appendChild(el('div', { class: 'panel-head', style: { borderColor: color } },
+    el('h3', null, '基线对比'),
+    el('span', { class: 'meta' }, '与 ' + (comp.baseline_name || comp.baseline_id) + ' 对比 · ' + comp.overlapping_tasks + ' 个重叠题'),
+    el('div', { class: 'spacer' }),
+    el('span', { class: 'mono', style: { fontSize: '18px', fontWeight: 700, color: inkColor } }, relScore + '%'),
+    el('span', { class: 'mono', style: { fontSize: '11px', color: 'var(--ink-3)', marginLeft: '6px' } }, '相对官方'),
+  ));
+
+  const body = el('div', { class: 'panel-body' });
+  const summary = el('div', { style: { display: 'flex', gap: '24px', padding: '8px 0', flexWrap: 'wrap' } });
+  summary.appendChild(el('div', null,
+    el('div', { class: 'meta', style: { fontSize: '10px' } }, 'BASELINE SCORE'),
+    el('div', { class: 'mono', style: { fontSize: '14px' } }, Math.round(comp.baseline_score * 100) / 100),
+  ));
+  summary.appendChild(el('div', null,
+    el('div', { class: 'meta', style: { fontSize: '10px' } }, 'CURRENT SCORE'),
+    el('div', { class: 'mono', style: { fontSize: '14px' } }, Math.round(comp.current_score * 100) / 100),
+  ));
+  summary.appendChild(el('div', null,
+    el('div', { class: 'meta', style: { fontSize: '10px' } }, 'DELTA'),
+    el('div', { class: 'mono', style: { fontSize: '14px', color: inkColor } }, deltaSign + delta),
+  ));
+  body.appendChild(summary);
+
+  if (comp.task_comparisons && comp.task_comparisons.length > 0) {
+    const taskList = el('div', { style: { borderTop: '1px solid var(--line)', paddingTop: '8px', marginTop: '8px' } });
+    const inconsistent = comp.task_comparisons.filter(t => !t.consistent);
+    if (inconsistent.length > 0) {
+      taskList.appendChild(el('div', { class: 'meta', style: { marginBottom: '6px', fontSize: '10px', color: 'var(--warn-ink)' } },
+        inconsistent.length + ' 个题目偏离 > 0.1'));
+      inconsistent.slice(0, 8).forEach(tc => {
+        const devColor = tc.deviation >= 0 ? 'var(--good-ink)' : 'var(--bad-ink)';
+        const devSign = tc.deviation >= 0 ? '+' : '';
+        taskList.appendChild(el('div', { style: { display: 'flex', gap: '10px', padding: '3px 0', fontSize: '11px', alignItems: 'center' } },
+          el('span', { class: 'mono', style: { width: '160px', overflow: 'hidden', textOverflow: 'ellipsis' } }, tc.task_id),
+          el('span', { class: 'mono', style: { color: 'var(--ink-3)' } }, Math.round(tc.baseline_score * 100) / 100 + ' →'),
+          el('span', { class: 'mono' }, Math.round(tc.current_score * 100) / 100),
+          el('span', { class: 'mono', style: { color: devColor, fontWeight: 600 } }, devSign + (Math.round(tc.deviation * 100) / 100)),
+        ));
+      });
+      if (inconsistent.length > 8) {
+        taskList.appendChild(el('div', { class: 'meta', style: { fontSize: '10px', textAlign: 'center', padding: '4px' } },
+          '+ ' + (inconsistent.length - 8) + ' more'));
+      }
+    } else {
+      taskList.appendChild(el('div', { style: { color: 'var(--good-ink)', fontSize: '11px' } }, '所有重叠题目与基线一致 (deviation ≤ 0.1)'));
+    }
+    body.appendChild(taskList);
+  }
 
   panel.appendChild(body);
   return panel;
@@ -937,42 +1060,56 @@ function renderBenchCategoryBreakdown(run) {
   return panel;
 }
 
-function renderBenchResultsList(run) {
+function renderBenchResultsList(run, runId) {
   const panel = el('div', { class: 'panel' });
+  const headRight = el('div', { class: 'spacer' });
+  const filterSeg = el('div', { class: 'seg seg-sm', style: { width: 'fit-content' } });
+  const filterState = run._resultFilter || 'all';
+  [['all', '全部'], ['fail', '失败/错误'], ['pass', '通过']].forEach(([v, lbl]) => {
+    filterSeg.appendChild(el('button', { class: filterState === v ? 'active' : '',
+      onclick: () => { run._resultFilter = v; maybeRerenderBench(runId); } }, lbl));
+  });
+
   panel.appendChild(el('div', { class: 'panel-head' },
     el('h3', null, '单题结果'),
     el('span', { class: 'meta' }, run.results.length + ' 条 · ' + (run.state === 'running' ? '流式追加' : '完整列表')),
+    headRight,
+    run.state !== 'running' ? filterSeg : null,
   ));
   const body = el('div', { class: 'panel-body', style: { padding: '0' } });
   const list = el('div', { class: 'live-list' });
-  if (run.results.length === 0) {
+
+  let filtered = run.results;
+  if (filterState === 'fail') filtered = run.results.filter(r => r.error || r.pass === false);
+  else if (filterState === 'pass') filtered = run.results.filter(r => !r.error && r.pass !== false);
+
+  if (filtered.length === 0) {
     list.appendChild(el('div', { class: 'empty' }, run.state === 'running' ? '等待第一条结果…' : '无结果'));
   } else {
-    // header
-    list.appendChild(el('div', { class: 'live-row',
+    list.appendChild(el('div', { class: 'live-row live-row-header',
       style: { background: 'var(--panel-2)', color: 'var(--ink-4)', fontSize: '10px', letterSpacing: '.08em', textTransform: 'uppercase', cursor: 'default' } },
       el('span'), el('span', null, 'lang'), el('span', null, 'cat'), el('span', null, 'task'), el('span', null, 'eval'), el('span', { style: { textAlign: 'right' } }, 'ms'),
+      run.state !== 'running' ? el('span', { style: { width: '32px' } }) : null,
     ));
-    run.results.forEach(r => list.appendChild(renderBenchResultRow(r)));
+    filtered.forEach(r => list.appendChild(renderBenchResultRow(r, run, runId)));
   }
   body.appendChild(list);
   panel.appendChild(body);
   return panel;
 }
 
-function renderBenchResultRow(r) {
+function renderBenchResultRow(r, run, runId) {
   const t = r.task || {};
   const hasErr = !!r.error;
   const passed = r.pass === true;
   const failed = r.pass === false;
   const dotClass = hasErr ? 'fail' : failed ? 'fail' : passed ? 'pass' : 'pending';
   const row = el('div', { class: 'live-row' + (hasErr ? ' err' : '') + (failed ? ' fail-row' : ''),
-    onclick: () => openBenchResultModal(r) });
+    onclick: () => openBenchResultModal(r, run, runId) });
   row.appendChild(el('span', { class: 'led-dot ' + dotClass }));
   row.appendChild(el('span', { class: 'lang' }, t.language || '—'));
   row.appendChild(el('span', { class: 'cat' }, t.category || '—'));
   row.appendChild(el('span', { class: 'preview' }, t.prompt ? t.prompt.slice(0, 80) : ''));
-  // eval info column
   const evalCell = el('span', { class: 'eval-info' });
   if (hasErr) {
     evalCell.appendChild(el('span', { class: 'itag itag-bad' }, 'ERR'));
@@ -989,15 +1126,23 @@ function renderBenchResultRow(r) {
   }
   row.appendChild(evalCell);
   row.appendChild(el('span', { class: 'ms' }, fmtMs(r.elapsed_ms || 0)));
+  if (run && run.state !== 'running' && (hasErr || failed)) {
+    const retryBtn = el('button', { class: 'iconbtn retry-btn', title: '重试此题',
+      onclick: ev => { ev.stopPropagation(); retryBenchTask(runId, r.index); } }, mkIcon('refresh', { size: 12 }));
+    row.appendChild(retryBtn);
+  } else if (run && run.state !== 'running') {
+    row.appendChild(el('span', { style: { width: '32px' } }));
+  }
   return row;
 }
 
-function openBenchResultModal(r) {
+function openBenchResultModal(r, run, runId) {
   const t = r.task || {};
   const body = el('div');
 
-  // tags
-  const tags = el('div', { class: 'tag-row', style: { marginBottom: '12px' } });
+  // action bar
+  const actionBar = el('div', { style: { display: 'flex', gap: '8px', marginBottom: '12px', alignItems: 'center' } });
+  const tags = el('div', { class: 'tag-row', style: { flex: 1 } });
   tags.appendChild(el('span', { class: 'itag itag-info' }, t.language || '—'));
   tags.appendChild(el('span', { class: 'itag itag-warn' }, t.category || '—'));
   if (r.error) tags.appendChild(el('span', { class: 'itag itag-bad' }, 'ERROR'));
@@ -1008,7 +1153,11 @@ function openBenchResultModal(r) {
   if (r.score != null) tags.appendChild(el('span', { class: 'itag ' + (r.score >= 0.5 ? 'itag-good' : 'itag-bad') }, 'score ' + Math.round(r.score * 100) + '%'));
   if (r.eval_type) tags.appendChild(el('span', { class: 'itag itag-accent' }, r.eval_type));
   tags.appendChild(el('span', { class: 'itag' }, t.task_id || ''));
-  body.appendChild(tags);
+  actionBar.appendChild(tags);
+  if (run && run.state !== 'running' && runId && (r.error || r.pass === false)) {
+    actionBar.appendChild(btn('重试', { icon: 'refresh', size: 'sm', onClick: () => { closeModal(); retryBenchTask(runId, r.index); } }));
+  }
+  body.appendChild(actionBar);
 
   // evaluation verdict
   if (r.pass != null || r.score != null) {
@@ -1214,6 +1363,7 @@ function renderBatchScoreComparison(batch) {
   t.appendChild(el('thead', null, el('tr', null,
     el('th', null, 'effort'),
     el('th', { style: { textAlign: 'right' } }, 'score'),
+    el('th', { style: { textAlign: 'right' } }, 'vs baseline'),
     el('th', { style: { textAlign: 'right' } }, 'pass rate'),
     el('th', { style: { textAlign: 'right' } }, 'tasks'),
     el('th', { style: { textAlign: 'right' } }, 'errors'),
@@ -1233,8 +1383,13 @@ function renderBatchScoreComparison(batch) {
     if (rep) {
       const score = rep.score_total != null ? Math.round(rep.score_total * 100) / 100 : null;
       const rate = rep.pass_rate != null ? Math.round(rep.pass_rate * 1000) / 10 : null;
+      const comp = rep.baseline_comparison;
+      const relScore = comp ? Math.round(comp.relative_score * 10) / 10 : null;
+      const relColor = relScore == null ? 'var(--ink-4)' : relScore >= 90 ? 'var(--good-ink)' : relScore >= 70 ? 'var(--warn-ink)' : 'var(--bad-ink)';
       tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', fontWeight: 600 } },
         score != null ? String(score) : '—'));
+      tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right', fontWeight: 600, color: relColor } },
+        relScore != null ? relScore + '%' : '—'));
       tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right' } },
         rate != null ? rate + '%' : '—'));
       tr.appendChild(el('td', { class: 'mono tnum', style: { textAlign: 'right' } },
@@ -1247,6 +1402,7 @@ function renderBatchScoreComparison(batch) {
       tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } }, avgMs ? fmtMs(avgMs) : '—'));
       tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } }, fmtMs(rep.elapsed_ms)));
     } else {
+      tr.appendChild(el('td', { style: { textAlign: 'right' } }, '—'));
       tr.appendChild(el('td', { style: { textAlign: 'right' } }, '—'));
       tr.appendChild(el('td', { style: { textAlign: 'right' } }, '—'));
       tr.appendChild(el('td', { class: 'mono', style: { textAlign: 'right' } },
@@ -1290,4 +1446,188 @@ function renderBatchScoreComparison(batch) {
 
   panel.appendChild(body);
   return panel;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Bench task retry
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+async function retryBenchTask(runId, taskIndex) {
+  const run = State.liveRuns[runId];
+  if (!run || !run.finalReport) return;
+  const reportId = run.finalReport.id || runId;
+  const targetKey = run.payload ? run.payload.target_key : State.bench.targetKey;
+  if (!targetKey) { toast('需要 API Key 才能重试', 'bad'); return; }
+
+  const result = run.results[taskIndex];
+  if (result) result._retrying = true;
+  maybeRerenderBench(runId);
+
+  try {
+    const data = await api('/api/intelligence/history/' + encodeURIComponent(reportId) + '/retry', {
+      method: 'POST',
+      body: JSON.stringify({ task_indices: [taskIndex], target_key: targetKey }),
+    });
+    if (data.results && data.results.length > 0) {
+      const newResult = data.results[0];
+      newResult._retrying = false;
+      run.results[taskIndex] = newResult;
+    }
+    if (data.report) {
+      run.finalReport = data.report;
+      run.totalTasks = data.report.task_total;
+      run.completedTasks = data.report.task_completed;
+      run.errorTasks = data.report.task_errors;
+    }
+    toast('重试完成', 'good');
+  } catch (e) {
+    if (result) result._retrying = false;
+    toast('重试失败: ' + e.message, 'bad');
+  }
+  maybeRerenderBench(runId);
+}
+
+async function retryBenchFailed(runId) {
+  const run = State.liveRuns[runId];
+  if (!run || !run.finalReport) return;
+  const reportId = run.finalReport.id || runId;
+  const targetKey = run.payload ? run.payload.target_key : State.bench.targetKey;
+  if (!targetKey) { toast('需要 API Key 才能重试', 'bad'); return; }
+
+  run.results.forEach(r => { if (r.error || r.pass === false) r._retrying = true; });
+  maybeRerenderBench(runId);
+  toast('正在重试所有失败题目…');
+
+  try {
+    const data = await api('/api/intelligence/history/' + encodeURIComponent(reportId) + '/retry', {
+      method: 'POST',
+      body: JSON.stringify({ failed: true, target_key: targetKey }),
+    });
+    if (data.results) {
+      data.results.forEach(nr => {
+        nr._retrying = false;
+        if (nr.index >= 0 && nr.index < run.results.length) run.results[nr.index] = nr;
+      });
+    }
+    if (data.report) {
+      run.finalReport = data.report;
+      run.totalTasks = data.report.task_total;
+      run.completedTasks = data.report.task_completed;
+      run.errorTasks = data.report.task_errors;
+    }
+    toast('重试完成 · ' + (data.retried || 0) + ' 题', 'good');
+  } catch (e) {
+    run.results.forEach(r => { r._retrying = false; });
+    toast('重试失败: ' + e.message, 'bad');
+  }
+  maybeRerenderBench(runId);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Task picker — browse & select individual tasks from a dataset
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+async function openTaskPicker() {
+  const dsName = State.currentDataset;
+  if (!dsName) { toast('请先选择数据集', 'bad'); return; }
+
+  const B = State.bench;
+  if (!B.pickedTaskIds) B.pickedTaskIds = [];
+  const selected = new Set(B.pickedTaskIds);
+
+  const body = el('div');
+  const status = el('div', { class: 'muted', style: { marginBottom: '10px', fontSize: '11px' } }, '加载题目…');
+  body.appendChild(status);
+
+  const filterRow = el('div', { style: { display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' } });
+  let filterLang = '', filterCat = '', filterText = '';
+
+  const langInput = el('input', { placeholder: '语言', class: 'mono',
+    style: { width: '80px', fontSize: '11px', padding: '3px 6px', borderRadius: '4px', border: '1px solid var(--line)', background: 'var(--panel-2)', color: 'var(--ink-1)' },
+    oninput: e => { filterLang = e.target.value.trim(); renderTaskList(); } });
+  const catInput = el('input', { placeholder: '类别', class: 'mono',
+    style: { width: '100px', fontSize: '11px', padding: '3px 6px', borderRadius: '4px', border: '1px solid var(--line)', background: 'var(--panel-2)', color: 'var(--ink-1)' },
+    oninput: e => { filterCat = e.target.value.trim(); renderTaskList(); } });
+  const textInput = el('input', { placeholder: '搜索 prompt / task_id…', class: 'mono',
+    style: { flex: 1, minWidth: '120px', fontSize: '11px', padding: '3px 6px', borderRadius: '4px', border: '1px solid var(--line)', background: 'var(--panel-2)', color: 'var(--ink-1)' },
+    oninput: e => { filterText = e.target.value.trim().toLowerCase(); renderTaskList(); } });
+  filterRow.appendChild(langInput);
+  filterRow.appendChild(catInput);
+  filterRow.appendChild(textInput);
+  body.appendChild(filterRow);
+
+  const counter = el('div', { style: { fontSize: '11px', marginBottom: '8px', color: 'var(--ink-3)' } });
+  body.appendChild(counter);
+
+  const listWrap = el('div', { class: 'task-picker-list' });
+  body.appendChild(listWrap);
+
+  let allTasks = [];
+
+  function renderTaskList() {
+    listWrap.innerHTML = '';
+    let tasks = allTasks;
+    if (filterLang) tasks = tasks.filter(t => t.language && t.language.toLowerCase().includes(filterLang.toLowerCase()));
+    if (filterCat) tasks = tasks.filter(t => t.category && t.category.toLowerCase().includes(filterCat.toLowerCase()));
+    if (filterText) tasks = tasks.filter(t =>
+      (t.task_id && t.task_id.toLowerCase().includes(filterText)) ||
+      (t.prompt && t.prompt.toLowerCase().includes(filterText)));
+    counter.textContent = selected.size + ' 已选 / ' + tasks.length + ' 显示 / ' + allTasks.length + ' 总计';
+
+    const selectAllCb = el('input', { type: 'checkbox',
+      onclick: e => {
+        if (e.target.checked) tasks.forEach(t => selected.add(t.task_id));
+        else tasks.forEach(t => selected.delete(t.task_id));
+        renderTaskList();
+      } });
+    if (tasks.length > 0 && tasks.every(t => selected.has(t.task_id))) selectAllCb.checked = true;
+    listWrap.appendChild(el('div', { class: 'tp-row tp-header' },
+      selectAllCb,
+      el('span', null, 'task_id'),
+      el('span', null, 'lang'),
+      el('span', null, 'cat'),
+      el('span', null, 'prompt'),
+    ));
+
+    const slice = tasks.slice(0, 200);
+    slice.forEach(t => {
+      const cb = el('input', { type: 'checkbox' });
+      if (selected.has(t.task_id)) cb.checked = true;
+      cb.addEventListener('change', () => {
+        if (cb.checked) selected.add(t.task_id); else selected.delete(t.task_id);
+        counter.textContent = selected.size + ' 已选 / ' + tasks.length + ' 显示 / ' + allTasks.length + ' 总计';
+      });
+      listWrap.appendChild(el('div', { class: 'tp-row' },
+        cb,
+        el('span', { class: 'mono', title: t.task_id }, t.task_id.length > 20 ? t.task_id.slice(0, 18) + '…' : t.task_id),
+        el('span', null, t.language || '—'),
+        el('span', null, t.category || '—'),
+        el('span', { class: 'preview', title: t.prompt || '' }, t.prompt ? t.prompt.slice(0, 60) : ''),
+      ));
+    });
+    if (tasks.length > 200) {
+      listWrap.appendChild(el('div', { class: 'muted', style: { textAlign: 'center', padding: '8px', fontSize: '11px' } },
+        '仅显示前 200 条 · 使用筛选缩小范围'));
+    }
+  }
+
+  try {
+    const data = await api('/api/intelligence/datasets/' + encodeURIComponent(dsName) + '/tasks?rubric=0');
+    allTasks = data.tasks || [];
+    status.textContent = '';
+    renderTaskList();
+  } catch (e) {
+    status.textContent = '加载失败: ' + e.message;
+    status.style.color = 'var(--bad-ink)';
+  }
+
+  const foot = el('div', null,
+    btn('取消', { ghost: true, onClick: closeDrawer }),
+    btn('确认选择', { primary: true, onClick: () => {
+      B.pickedTaskIds = Array.from(selected);
+      closeDrawer();
+      rebuildRunConfig();
+    } }),
+  );
+  openDrawer('选择题目 · ' + dsName, body, foot);
 }

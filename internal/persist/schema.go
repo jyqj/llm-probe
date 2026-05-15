@@ -35,6 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_monitor_runs_target_started
 CREATE TABLE IF NOT EXISTS health_states (
   target_id TEXT NOT NULL,
   model TEXT NOT NULL,
+  check_type TEXT NOT NULL DEFAULT 'channel',
   status TEXT,
   score REAL,
   grade TEXT,
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS health_states (
   consec_fails INTEGER,
   consec_ok INTEGER,
   payload_json TEXT NOT NULL,
-  PRIMARY KEY(target_id, model)
+  PRIMARY KEY(target_id, model, check_type)
 );
 
 CREATE TABLE IF NOT EXISTS baselines (
@@ -93,5 +94,14 @@ CREATE TABLE IF NOT EXISTS intelligence_history (
   score_total REAL,
   pass_rate REAL,
   payload_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS channel_keywords (
+  id TEXT PRIMARY KEY,
+  pattern TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  scopes TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
 );
 `

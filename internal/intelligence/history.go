@@ -3,6 +3,8 @@ package intelligence
 import (
 	"database/sql"
 	"sync"
+
+	"detector-service/internal/intelligence/eval"
 )
 
 // RunReportSummary is a lightweight view of RunReport for list display.
@@ -130,6 +132,61 @@ func (h *HistoryStore) Get(id string) *RunReport {
 		}
 	}
 	return nil
+}
+
+// UpdateResult replaces a single task result and recalculates the report scores.
+func (h *HistoryStore) UpdateResult(report *RunReport, idx int, result TaskRunResult) {
+	h.mu.Lock()
+	result.Index = idx
+	report.Results[idx] = result
+	h.recalculateLocked(report)
+	h.mu.Unlock()
+
+	if p := h.persist; p != nil && p.Save != nil {
+		p.logErr("retry_task", p.Save(p.DB, report))
+	}
+}
+
+// Recalculate recomputes aggregate scores for a report after results change.
+func (h *HistoryStore) Recalculate(report *RunReport) {
+	h.mu.Lock()
+	h.recalculateLocked(report)
+	h.mu.Unlock()
+
+	if p := h.persist; p != nil && p.Save != nil {
+		p.logErr("recalculate", p.Save(p.DB, report))
+	}
+}
+
+func (h *HistoryStore) recalculateLocked(report *RunReport) {
+	var completed, errors int
+	var evalResults []eval.EvalResult
+	categories := make(map[int]string)
+	for _, r := range report.Results {
+		if r.Error != "" {
+			errors++
+			completed++
+		} else if r.Answer != "" {
+			completed++
+		}
+		if r.Score != nil {
+			evalResults = append(evalResults, eval.EvalResult{
+				Pass:     *r.Pass,
+				Score:    *r.Score,
+				EvalType: r.EvalType,
+			})
+			categories[len(evalResults)-1] = r.Task.Category
+		}
+	}
+	report.TaskCompleted = completed
+	report.TaskErrors = errors
+	if len(evalResults) > 0 {
+		agg := eval.Aggregate(evalResults, categories)
+		report.ScoreTotal = &agg.ScoreTotal
+		report.PassRate = &agg.PassRate
+		report.TotalEvaluated = agg.TotalEvaluated
+		report.TotalPassed = agg.TotalPassed
+	}
 }
 
 // Delete removes a history record by ID.

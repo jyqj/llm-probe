@@ -6,7 +6,15 @@ import (
 )
 
 func (a *API) RegisterRoutes(mux *http.ServeMux) {
+	// 元数据：前端与文档共用的单一真相源。
+	mux.HandleFunc("/api/meta/models", a.adminAuth(a.handleMetaModels))
+
 	// 渠道测试：判断 API 是否像真实 Anthropic/Claude 渠道。
+	mux.HandleFunc("/api/channel/probes", a.adminAuth(a.handleChannelProbes))
+	mux.HandleFunc("/api/channel/checks", a.adminAuth(a.handleChannelChecks))
+	mux.HandleFunc("/api/channel/profiles", a.adminAuth(a.handleChannelProfiles))
+	mux.HandleFunc("/api/channel/keywords", a.adminAuth(a.handleChannelKeywords))
+	mux.HandleFunc("/api/channel/keywords/", a.adminAuth(a.handleChannelKeywordDetail))
 	mux.HandleFunc("/api/channel/run/stream", a.adminAuth(a.handleChannelRunStream))
 	mux.HandleFunc("/api/channel/run", a.adminAuth(a.handleChannelRun))
 	mux.HandleFunc("/api/channel/report", a.adminAuth(a.handleChannelReport))

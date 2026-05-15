@@ -51,7 +51,7 @@ func (r *Runner) Run(ctx context.Context, req Request) *Report {
 	report := &Report{Target: req.Target, StartedAt: started}
 
 	if r.ChannelStore != nil {
-		channelReport, err := r.ChannelStore.RunSync(req.Target.BaseURL, req.Target.APIKey, req.Target.Model, "", 2)
+		channelReport, err := r.ChannelStore.RunSync(req.Target.BaseURL, req.Target.APIKey, req.Target.Model, "", 2, "")
 		if err != nil {
 			report.ChannelError = err.Error()
 		} else {

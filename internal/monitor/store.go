@@ -16,7 +16,7 @@ type MonitorPersist struct {
 	LoadAllTargets      func(db *sql.DB) ([]*Target, error)
 	SaveHealthState     func(db *sql.DB, hs *HealthState) error
 	DeleteHealthStates  func(db *sql.DB, targetID string) error
-	DeleteHealthState   func(db *sql.DB, targetID, model string) error
+	DeleteHealthState   func(db *sql.DB, targetID, model, checkType string) error
 	LoadAllHealthStates func(db *sql.DB) ([]*HealthState, error)
 	SaveRun             func(db *sql.DB, run *MonitorRun) error
 	LoadAllRuns         func(db *sql.DB, maxRuns int) ([]*MonitorRun, error)
@@ -34,7 +34,7 @@ type Store struct {
 	mu      sync.RWMutex
 	persist *MonitorPersist
 	targets map[string]*Target
-	states  map[string]*HealthState // key = targetID:model
+	states  map[string]*HealthState // key = targetID:model:checkType
 	runs    []*MonitorRun
 	maxRuns int
 }
@@ -64,7 +64,7 @@ func NewStore(p *MonitorPersist) *Store {
 				p.logErr("load_health_states", err)
 			} else {
 				for _, st := range states {
-					s.states[stateKey(st.TargetID, st.Model)] = st
+					s.states[stateKey(st.TargetID, st.Model, st.CheckType)] = st
 				}
 			}
 		}
@@ -78,15 +78,17 @@ func NewStore(p *MonitorPersist) *Store {
 		}
 	}
 
-	// reconcile: ensure every target model has a health state
+	// reconcile: ensure every target+model+checkType has a health state
 	for _, t := range s.targets {
 		for _, m := range t.Models {
-			key := stateKey(t.ID, m)
-			if s.states[key] == nil {
-				st := &HealthState{TargetID: t.ID, Model: m, Status: StatusUnknown}
-				s.states[key] = st
-				if p != nil && p.DB != nil && p.SaveHealthState != nil {
-					p.logErr("reconcile_health_state", p.SaveHealthState(p.DB, st))
+			for _, ct := range checkTypesFor(t.CheckType) {
+				key := stateKey(t.ID, m, ct)
+				if s.states[key] == nil {
+					st := &HealthState{TargetID: t.ID, Model: m, CheckType: ct, Status: StatusUnknown}
+					s.states[key] = st
+					if p != nil && p.DB != nil && p.SaveHealthState != nil {
+						p.logErr("reconcile_health_state", p.SaveHealthState(p.DB, st))
+					}
 				}
 			}
 		}
@@ -95,8 +97,22 @@ func NewStore(p *MonitorPersist) *Store {
 	return s
 }
 
-func stateKey(targetID, model string) string {
-	return targetID + ":" + model
+func stateKey(targetID, model, checkType string) string {
+	if checkType == "" {
+		checkType = "channel"
+	}
+	return targetID + ":" + model + ":" + checkType
+}
+
+func checkTypesFor(ct string) []string {
+	switch ct {
+	case "intelligence":
+		return []string{"intelligence"}
+	case "both":
+		return []string{"channel", "intelligence"}
+	default:
+		return []string{"channel"}
+	}
 }
 
 // ── Targets ──
@@ -159,6 +175,23 @@ func (s *Store) CreateTarget(req TargetCreateRequest) (*Target, error) {
 		intThreshold = *req.IntelligenceThreshold
 	}
 
+	var channelInterval time.Duration
+	if req.ChannelInterval != "" {
+		d, err := time.ParseDuration(req.ChannelInterval)
+		if err != nil {
+			return nil, fmt.Errorf("invalid channel_interval: %w", err)
+		}
+		channelInterval = d
+	}
+	var intelligenceInterval time.Duration
+	if req.IntelligenceInterval != "" {
+		d, err := time.ParseDuration(req.IntelligenceInterval)
+		if err != nil {
+			return nil, fmt.Errorf("invalid intelligence_interval: %w", err)
+		}
+		intelligenceInterval = d
+	}
+
 	now := time.Now()
 	t := &Target{
 		ID:                    newID(),
@@ -172,6 +205,9 @@ func (s *Store) CreateTarget(req TargetCreateRequest) (*Target, error) {
 		CreatedAt:             now,
 		UpdatedAt:             now,
 		CheckType:             checkType,
+		Profile:               req.Profile,
+		ChannelInterval:       channelInterval,
+		IntelligenceInterval:  intelligenceInterval,
 		IntelligenceDataset:   req.IntelligenceDataset,
 		IntelligenceLimit:     intLimit,
 		IntelligenceMaxLimit:  intMaxLimit,
@@ -196,16 +232,19 @@ func (s *Store) CreateTarget(req TargetCreateRequest) (*Target, error) {
 	s.mu.Lock()
 	s.targets[t.ID] = t
 	for _, m := range t.Models {
-		key := stateKey(t.ID, m)
-		if s.states[key] == nil {
-			st := &HealthState{
-				TargetID: t.ID,
-				Model:    m,
-				Status:   StatusUnknown,
-			}
-			s.states[key] = st
-			if p := s.persist; p != nil && p.DB != nil && p.SaveHealthState != nil {
-				p.logErr("save_initial_health_state", p.SaveHealthState(p.DB, st))
+		for _, ct := range checkTypesFor(t.CheckType) {
+			key := stateKey(t.ID, m, ct)
+			if s.states[key] == nil {
+				st := &HealthState{
+					TargetID:  t.ID,
+					Model:     m,
+					CheckType: ct,
+					Status:    StatusUnknown,
+				}
+				s.states[key] = st
+				if p := s.persist; p != nil && p.DB != nil && p.SaveHealthState != nil {
+					p.logErr("save_initial_health_state", p.SaveHealthState(p.DB, st))
+				}
 			}
 		}
 	}
@@ -278,6 +317,23 @@ func (s *Store) UpdateTarget(id string, req TargetUpdateRequest) (*Target, error
 		}
 		t.CheckType = *req.CheckType
 	}
+	if req.Profile != nil {
+		t.Profile = *req.Profile
+	}
+	if req.ChannelInterval != nil {
+		d, err := time.ParseDuration(*req.ChannelInterval)
+		if err != nil {
+			return nil, fmt.Errorf("invalid channel_interval: %w", err)
+		}
+		t.ChannelInterval = d
+	}
+	if req.IntelligenceInterval != nil {
+		d, err := time.ParseDuration(*req.IntelligenceInterval)
+		if err != nil {
+			return nil, fmt.Errorf("invalid intelligence_interval: %w", err)
+		}
+		t.IntelligenceInterval = d
+	}
 	if req.IntelligenceDataset != nil {
 		t.IntelligenceDataset = *req.IntelligenceDataset
 	}
@@ -314,30 +370,37 @@ func (s *Store) UpdateTarget(id string, req TargetUpdateRequest) (*Target, error
 	// commit to memory
 	s.targets[id] = t
 
-	// reconcile model states if models changed
-	if req.Models != nil {
-		oldModels := make(map[string]bool, len(orig.Models))
+	// reconcile model+checkType states if models or checkType changed
+	if req.Models != nil || req.CheckType != nil {
+		oldKeys := make(map[string]bool)
 		for _, m := range orig.Models {
-			oldModels[m] = true
-		}
-		newModels := make(map[string]bool, len(t.Models))
-		for _, m := range t.Models {
-			newModels[m] = true
-		}
-		for m := range oldModels {
-			if !newModels[m] {
-				delete(s.states, stateKey(t.ID, m))
-				if p := s.persist; p != nil && p.DB != nil && p.DeleteHealthState != nil {
-					p.logErr("delete_stale_model_state", p.DeleteHealthState(p.DB, t.ID, m))
-				}
+			for _, ct := range checkTypesFor(orig.CheckType) {
+				oldKeys[stateKey(t.ID, m, ct)] = true
 			}
 		}
-		for m := range newModels {
-			if !oldModels[m] {
-				st := &HealthState{TargetID: t.ID, Model: m, Status: StatusUnknown}
-				s.states[stateKey(t.ID, m)] = st
-				if p := s.persist; p != nil && p.DB != nil && p.SaveHealthState != nil {
-					p.logErr("save_new_model_state", p.SaveHealthState(p.DB, st))
+		newKeys := make(map[string]bool)
+		for _, m := range t.Models {
+			for _, ct := range checkTypesFor(t.CheckType) {
+				newKeys[stateKey(t.ID, m, ct)] = true
+			}
+		}
+		for k := range oldKeys {
+			if !newKeys[k] {
+				delete(s.states, k)
+			}
+		}
+		if p := s.persist; p != nil && p.DB != nil && p.DeleteHealthStates != nil {
+			p.logErr("reconcile_delete_states", p.DeleteHealthStates(p.DB, t.ID))
+		}
+		for _, m := range t.Models {
+			for _, ct := range checkTypesFor(t.CheckType) {
+				key := stateKey(t.ID, m, ct)
+				if s.states[key] == nil {
+					st := &HealthState{TargetID: t.ID, Model: m, CheckType: ct, Status: StatusUnknown}
+					s.states[key] = st
+					if p := s.persist; p != nil && p.DB != nil && p.SaveHealthState != nil {
+						p.logErr("save_new_state", p.SaveHealthState(p.DB, st))
+					}
 				}
 			}
 		}
@@ -363,22 +426,29 @@ func (s *Store) DeleteTarget(id string) bool {
 	}
 	delete(s.targets, id)
 	for _, m := range t.Models {
-		delete(s.states, stateKey(id, m))
+		for _, ct := range checkTypesFor(t.CheckType) {
+			delete(s.states, stateKey(id, m, ct))
+		}
 	}
 	return true
 }
 
 // ── States ──
 
-func (s *Store) GetState(targetID, model string) *HealthState {
+func (s *Store) GetState(targetID, model, checkType string) *HealthState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	st := s.states[stateKey(targetID, model)]
+	st := s.states[stateKey(targetID, model, checkType)]
 	if st == nil {
 		return nil
 	}
 	cp := *st
 	return &cp
+}
+
+// GetHealthState returns the health state for adaptive scheduling.
+func (s *Store) GetHealthState(targetID, model, checkType string) *HealthState {
+	return s.GetState(targetID, model, checkType)
 }
 
 func (s *Store) ListStates() []*HealthState {
@@ -402,13 +472,14 @@ func (s *Store) RecordRun(run *MonitorRun) {
 		run.ID = fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 
-	key := stateKey(run.TargetID, run.Model)
+	key := stateKey(run.TargetID, run.Model, run.CheckType)
 	st := s.states[key]
 	if st == nil {
 		st = &HealthState{
-			TargetID: run.TargetID,
-			Model:    run.Model,
-			Status:   StatusUnknown,
+			TargetID:  run.TargetID,
+			Model:     run.Model,
+			CheckType: run.CheckType,
+			Status:    StatusUnknown,
 		}
 		s.states[key] = st
 	}

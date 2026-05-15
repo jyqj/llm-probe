@@ -104,11 +104,11 @@ func (a *API) handleMonitorManualRun(w http.ResponseWriter, r *http.Request, tar
 		return
 	}
 
-	runs := a.monitorRunner.RunAll(t)
+	runs := a.monitorRunner.RunAllCtx(r.Context(), t)
 
 	if a.cfg.Alert.Enabled && a.alertEvaluator != nil {
 		for _, run := range runs {
-			state := a.monitorStore.GetState(run.TargetID, run.Model)
+			state := a.monitorStore.GetState(run.TargetID, run.Model, run.CheckType)
 			events := a.alertEvaluator.Evaluate(run, state)
 			if a.alertNotifier != nil {
 				a.alertNotifier.NotifyAll(events)
@@ -224,6 +224,7 @@ func (a *API) recordBaseline(ctx context.Context, req monitor.BaselineCreateRequ
 	b := &monitor.Baseline{
 		Name:           req.Name,
 		Model:          req.Model,
+		Profile:        req.Profile,
 		ThinkingEffort: req.ThinkingEffort,
 		Effort:         req.Effort,
 		ThinkingMode:   req.ThinkingMode,
@@ -232,7 +233,7 @@ func (a *API) recordBaseline(ctx context.Context, req monitor.BaselineCreateRequ
 	}
 
 	if a.channelRunner != nil {
-		report, err := a.channelRunner.Run(req.BaseURL, req.APIKey, req.Model, 2)
+		report, err := a.channelRunner.RunCtx(ctx, req.BaseURL, req.APIKey, req.Model, 2, req.Profile)
 		if err != nil {
 			a.logger.Warn("baseline channel test failed", "error", err)
 		} else {

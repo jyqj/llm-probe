@@ -100,15 +100,6 @@ func DefaultRules() []Rule {
 			Cooldown:    "15m",
 		},
 		{
-			Name:        "intelligence_pass_rate_low",
-			Metric:      "intelligence.pass_rate",
-			Op:          "<",
-			Value:       60,
-			Consecutive: 1,
-			Severity:    SeverityWarning,
-			Cooldown:    "30m",
-		},
-		{
 			Name:        "intelligence_score_delta_high",
 			Metric:      "intelligence.score_delta",
 			Op:          ">",

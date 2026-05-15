@@ -61,5 +61,41 @@ func (db *DB) Migrate() error {
 	} {
 		db.conn.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", col.table, col.col, col.def))
 	}
+
+	// health_states PK changed from (target_id, model) to (target_id, model, check_type).
+	// Detect old schema and recreate — health states are ephemeral.
+	var hasCheckType bool
+	rows, err := db.conn.Query("PRAGMA table_info(health_states)")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var cid int
+			var name, typ string
+			var notNull, pk int
+			var dflt sql.NullString
+			rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk)
+			if name == "check_type" {
+				hasCheckType = true
+			}
+		}
+	}
+	if !hasCheckType {
+		db.conn.Exec("DROP TABLE IF EXISTS health_states")
+		db.conn.Exec(`CREATE TABLE IF NOT EXISTS health_states (
+			target_id TEXT NOT NULL,
+			model TEXT NOT NULL,
+			check_type TEXT NOT NULL DEFAULT 'channel',
+			status TEXT,
+			score REAL,
+			grade TEXT,
+			last_check TEXT,
+			last_change TEXT,
+			consec_fails INTEGER,
+			consec_ok INTEGER,
+			payload_json TEXT NOT NULL,
+			PRIMARY KEY(target_id, model, check_type)
+		)`)
+	}
+
 	return nil
 }

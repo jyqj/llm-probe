@@ -46,7 +46,7 @@ func NewStore(p *StorePersist) *Store {
 			s.events = loaded
 			// rebuild lastFired from loaded events
 			for _, ev := range loaded {
-				key := ev.RuleName + ":" + ev.TargetID + ":" + ev.Model
+				key := dedupKeyFor(ev)
 				if existing, ok := s.lastFired[key]; !ok || ev.FiredAt.After(existing) {
 					s.lastFired[key] = ev.FiredAt
 				}
@@ -64,7 +64,7 @@ func (s *Store) RecordEvent(ev *Event) {
 	if len(s.events) > s.maxEvents {
 		s.events = s.events[len(s.events)-s.maxEvents:]
 	}
-	dedupKey := ev.RuleName + ":" + ev.TargetID + ":" + ev.Model
+	dedupKey := dedupKeyFor(ev)
 	s.lastFired[dedupKey] = ev.FiredAt
 	if p := s.persist; p != nil && p.DB != nil {
 		if p.Save != nil {
@@ -94,7 +94,7 @@ func (s *Store) ResolveEvent(dedupKey string) {
 	now := time.Now()
 	for i := len(s.events) - 1; i >= 0; i-- {
 		ev := s.events[i]
-		key := ev.RuleName + ":" + ev.TargetID + ":" + ev.Model
+		key := dedupKeyFor(ev)
 		if key == dedupKey && ev.Status == EventFiring {
 			ev.Status = EventResolved
 			ev.ResolvedAt = &now
@@ -104,6 +104,13 @@ func (s *Store) ResolveEvent(dedupKey string) {
 			break
 		}
 	}
+}
+
+func dedupKeyFor(ev *Event) string {
+	if ev == nil {
+		return ""
+	}
+	return ev.RuleName + ":" + ev.TargetID + ":" + ev.Model + ":" + ev.CheckType
 }
 
 // ListEvents returns recent events in reverse chronological order.

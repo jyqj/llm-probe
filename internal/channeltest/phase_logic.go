@@ -11,16 +11,19 @@ var probeLogic = &Probe{
 }
 
 func (p *Runner) runLogicProbe(targetBase, targetKey, model string) ([]CheckResult, error) {
-	body := toJSON(map[string]any{
+	req := map[string]any{
 		"model":      model,
 		"max_tokens": 64000,
 		"stream":     true,
-		"thinking":   map[string]any{"type": "adaptive"},
 		"system":     fullSystem(),
 		"tools":      data.Tools(),
 		"metadata":   genMetadata(),
 		"messages":   []any{umsg("请逐步推理：一栋楼有3个开关控制3楼的3盏灯，你在1楼只能上去一次。如何确定每个开关对应哪盏灯？如果变成4个开关4盏灯，仍然只能上去一次，怎么办？")},
-	})
+	}
+	if tp := ThinkingParam(model); tp != nil {
+		req["thinking"] = tp
+	}
+	body := toJSON(req)
 
 	resp, err := p.send(targetBase, targetKey, body)
 	if err != nil {

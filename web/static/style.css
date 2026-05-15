@@ -937,11 +937,16 @@ details summary::-webkit-details-marker { display: none; }
   font-family: var(--font-mono);
 }
 .live-row:last-child { border-bottom: none; }
+.live-row:not(.live-row-header) { cursor: pointer; transition: background .1s; }
+.live-row:not(.live-row-header):hover { background: var(--panel-2); }
+.live-row:not(.live-row-header):hover .retry-btn { opacity: 1; }
 .live-row .lang, .live-row .cat { color: var(--ink-3); }
 .live-row .id { color: var(--ink-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .live-row .ms { color: var(--ink-3); text-align: right; }
 .live-row.err { background: var(--bad-soft); }
+.live-row.err:hover { background: rgba(180,48,44,.12); }
 .live-row.fail-row { background: rgba(180,48,44,.04); }
+.live-row.fail-row:hover { background: rgba(180,48,44,.09); }
 .eval-info { display: flex; align-items: center; gap: 4px; }
 .eval-type { font-size: 9px; color: var(--ink-4); }
 .live-row .preview {
@@ -1236,6 +1241,64 @@ details summary::-webkit-details-marker { display: none; }
   border-top: 1px solid var(--line-soft);
   font-size: 10px; font-family: var(--font-mono); color: var(--ink-4);
 }
+
+/* ─── Retry button (inline in rows) ─── */
+.retry-btn {
+  width: 24px; height: 24px; padding: 0;
+  background: transparent; border: 1px solid var(--line);
+  border-radius: var(--r-sm); cursor: pointer;
+  color: var(--ink-3); display: inline-flex; align-items: center; justify-content: center;
+  opacity: .6; transition: opacity .15s, border-color .15s;
+}
+.retry-btn:hover { opacity: 1; border-color: var(--accent); color: var(--accent); }
+
+/* live-row with retry column */
+.live-row:has(.retry-btn),
+.live-row-header ~ .live-row {
+  grid-template-columns: 18px 60px 80px 1fr 80px 60px 32px;
+}
+.live-row-header {
+  grid-template-columns: 18px 60px 80px 1fr 80px 60px 32px;
+}
+
+/* ─── Seg small variant ─── */
+.seg-sm { font-size: 10px; }
+.seg-sm button { padding: 2px 8px; }
+
+/* ─── Task picker (drawer) ─── */
+.task-picker-summary {
+  display: flex; align-items: center; gap: 8px;
+}
+.task-picker-list {
+  max-height: 50vh; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.tp-row {
+  display: grid; grid-template-columns: 24px 140px 50px 70px 1fr;
+  gap: 6px; align-items: center; padding: 5px 10px;
+  font-size: 11px; font-family: var(--font-mono);
+  border-bottom: 1px solid var(--line-soft);
+}
+.tp-row:last-child { border-bottom: none; }
+.tp-header {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--panel-2); font-weight: 600; font-family: var(--font-sans);
+  text-transform: uppercase; font-size: 10px; letter-spacing: .05em; color: var(--ink-4);
+}
+.tp-row .preview {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink-2); font-family: var(--font-sans);
+}
+.tp-row input[type=checkbox] { width: 14px; height: 14px; cursor: pointer; }
+
+/* ─── Picked task tags ─── */
+.picked-tags {
+  display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 0 0;
+}
+.picked-tags .itag { font-size: 10px; cursor: pointer; }
+.picked-tags .itag:hover { opacity: .7; }
+
+/* ─── Result filter segment ─── */
+.panel-head .seg-sm { margin-left: auto; }
 
 /* small responsive */
 @media (max-width: 980px) {

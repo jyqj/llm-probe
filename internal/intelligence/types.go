@@ -2,6 +2,8 @@ package intelligence
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"net/http"
 	"time"
 )
@@ -102,6 +104,28 @@ type RunRequest struct {
 	ThinkingMode   string   `json:"thinking_mode,omitempty"`
 	MaxTokens      int      `json:"max_tokens,omitempty"`
 	Concurrency    int      `json:"concurrency,omitempty"`
+	BaselineID     string   `json:"baseline_id,omitempty"`
+}
+
+// BaselineComparison holds the result of comparing a run against a reference baseline.
+type BaselineComparison struct {
+	BaselineID       string           `json:"baseline_id"`
+	BaselineName     string           `json:"baseline_name,omitempty"`
+	BaselineScore    float64          `json:"baseline_score"`
+	CurrentScore     float64          `json:"current_score"`
+	RelativeScore    float64          `json:"relative_score"`
+	OverlappingTasks int              `json:"overlapping_tasks"`
+	ConsistentTasks  int              `json:"consistent_tasks"`
+	TaskComparisons  []TaskComparison `json:"task_comparisons,omitempty"`
+}
+
+// TaskComparison records one task's baseline vs current score.
+type TaskComparison struct {
+	TaskID        string  `json:"task_id"`
+	BaselineScore float64 `json:"baseline_score"`
+	CurrentScore  float64 `json:"current_score"`
+	Deviation     float64 `json:"deviation"`
+	Consistent    bool    `json:"consistent"`
 }
 
 // RunReport is the complete result of a intelligence-test run.
@@ -127,6 +151,81 @@ type RunReport struct {
 	PassRate       *float64        `json:"pass_rate,omitempty"`
 	TotalEvaluated int             `json:"total_evaluated,omitempty"`
 	TotalPassed    int             `json:"total_passed,omitempty"`
+
+	BaselineComparison *BaselineComparison `json:"baseline_comparison,omitempty"`
+}
+
+// CompareToBaseline computes a baseline comparison between this report and a reference.
+func (r *RunReport) CompareToBaseline(baselineID, baselineName string, baseline *RunReport) {
+	if baseline == nil || r == nil {
+		return
+	}
+
+	baseScores := make(map[string]float64)
+	for _, tr := range baseline.Results {
+		if tr.Score != nil {
+			baseScores[tr.Task.TaskID] = *tr.Score
+		}
+	}
+
+	comp := &BaselineComparison{
+		BaselineID:   baselineID,
+		BaselineName: baselineName,
+	}
+	if baseline.ScoreTotal != nil {
+		comp.BaselineScore = *baseline.ScoreTotal
+	}
+	if r.ScoreTotal != nil {
+		comp.CurrentScore = *r.ScoreTotal
+	}
+
+	for _, tr := range r.Results {
+		bs, ok := baseScores[tr.Task.TaskID]
+		if !ok {
+			continue
+		}
+		cs := 0.0
+		if tr.Score != nil {
+			cs = *tr.Score
+		} else if tr.Error != "" {
+			cs = 0
+		} else {
+			continue
+		}
+		comp.OverlappingTasks++
+		dev := cs - bs
+		consistent := dev >= -0.1 && dev <= 0.1
+		comp.TaskComparisons = append(comp.TaskComparisons, TaskComparison{
+			TaskID:        tr.Task.TaskID,
+			BaselineScore: bs,
+			CurrentScore:  cs,
+			Deviation:     dev,
+			Consistent:    consistent,
+		})
+	}
+
+	if comp.BaselineScore > 0 {
+		comp.RelativeScore = math.Round(comp.CurrentScore/comp.BaselineScore*10000) / 100
+	} else if comp.CurrentScore > 0 {
+		comp.RelativeScore = 100
+	}
+
+	consistentCount := 0
+	for _, tc := range comp.TaskComparisons {
+		if tc.Consistent {
+			consistentCount++
+		}
+	}
+	comp.ConsistentTasks = consistentCount
+
+	r.BaselineComparison = comp
+	r.EvaluationNote = fmt.Sprintf(
+		"基线对比模式：以官方满血 (%s) 在相同 effort 下的表现为参考 (%.1f 分)，"+
+			"当前渠道相对得分 %.1f%% (%d/%d 题一致)。"+
+			"判定标准为相对性能而非绝对正确率。",
+		baselineName, comp.BaselineScore,
+		comp.RelativeScore, consistentCount, comp.OverlappingTasks,
+	)
 }
 
 // TaskRunResult is the outcome of running one task.

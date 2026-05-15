@@ -29,15 +29,34 @@ type Target struct {
 	CreatedAt time.Time     `json:"created_at"`
 	UpdatedAt time.Time     `json:"updated_at"`
 
-	CheckType             string  `json:"check_type"`
-	IntelligenceDataset   string  `json:"intelligence_dataset,omitempty"`
-	IntelligenceLimit     int     `json:"intelligence_limit,omitempty"`
-	IntelligenceMaxLimit  int     `json:"intelligence_max_limit,omitempty"`
-	IntelligenceThreshold float64 `json:"intelligence_threshold,omitempty"`
-	BaselineID            string  `json:"baseline_id,omitempty"`
-	Effort                string  `json:"effort,omitempty"`
-	ThinkingMode          string  `json:"thinking_mode,omitempty"`
-	MaxTokens             int     `json:"max_tokens,omitempty"`
+	CheckType             string        `json:"check_type"`
+	Profile               string        `json:"profile,omitempty"`
+	ChannelInterval       time.Duration `json:"channel_interval,omitempty"`
+	IntelligenceInterval  time.Duration `json:"intelligence_interval,omitempty"`
+	IntelligenceDataset   string        `json:"intelligence_dataset,omitempty"`
+	IntelligenceLimit     int           `json:"intelligence_limit,omitempty"`
+	IntelligenceMaxLimit  int           `json:"intelligence_max_limit,omitempty"`
+	IntelligenceThreshold float64       `json:"intelligence_threshold,omitempty"`
+	BaselineID            string        `json:"baseline_id,omitempty"`
+	Effort                string        `json:"effort,omitempty"`
+	ThinkingMode          string        `json:"thinking_mode,omitempty"`
+	MaxTokens             int           `json:"max_tokens,omitempty"`
+}
+
+// EffectiveChannelInterval returns the interval for channel checks, falling back to Interval.
+func (t *Target) EffectiveChannelInterval() time.Duration {
+	if t.ChannelInterval > 0 {
+		return t.ChannelInterval
+	}
+	return t.Interval
+}
+
+// EffectiveIntelligenceInterval returns the interval for intelligence checks, falling back to Interval.
+func (t *Target) EffectiveIntelligenceInterval() time.Duration {
+	if t.IntelligenceInterval > 0 {
+		return t.IntelligenceInterval
+	}
+	return t.Interval
 }
 
 func validCheckType(ct string) bool {
@@ -54,6 +73,9 @@ type TargetCreateRequest struct {
 	Jitter                string   `json:"jitter,omitempty"`
 	Enabled               *bool    `json:"enabled,omitempty"`
 	CheckType             string   `json:"check_type,omitempty"`
+	Profile               string   `json:"profile,omitempty"`
+	ChannelInterval       string   `json:"channel_interval,omitempty"`
+	IntelligenceInterval  string   `json:"intelligence_interval,omitempty"`
 	IntelligenceDataset   string   `json:"intelligence_dataset,omitempty"`
 	IntelligenceLimit     *int     `json:"intelligence_limit,omitempty"`
 	IntelligenceMaxLimit  *int     `json:"intelligence_max_limit,omitempty"`
@@ -74,6 +96,9 @@ type TargetUpdateRequest struct {
 	Jitter                *string  `json:"jitter,omitempty"`
 	Enabled               *bool    `json:"enabled,omitempty"`
 	CheckType             *string  `json:"check_type,omitempty"`
+	Profile               *string  `json:"profile,omitempty"`
+	ChannelInterval       *string  `json:"channel_interval,omitempty"`
+	IntelligenceInterval  *string  `json:"intelligence_interval,omitempty"`
 	IntelligenceDataset   *string  `json:"intelligence_dataset,omitempty"`
 	IntelligenceLimit     *int     `json:"intelligence_limit,omitempty"`
 	IntelligenceMaxLimit  *int     `json:"intelligence_max_limit,omitempty"`

@@ -13,6 +13,14 @@ import (
 	"detector-service/internal/target"
 )
 
+func (a *API) handleChannelProfiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"profiles": channeltest.ListProfiles()})
+}
+
 func (a *API) handleChannelRun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -25,6 +33,8 @@ func (a *API) handleChannelRun(w http.ResponseWriter, r *http.Request) {
 		Models      []string `json:"models"`
 		ChannelName string   `json:"channel_name"`
 		Concurrency int      `json:"concurrency"`
+		Profile     string   `json:"profile"`
+		BaselineID  string   `json:"baseline_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
@@ -43,19 +53,25 @@ func (a *API) handleChannelRun(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	if len(models) == 1 {
-		report, err := a.channelStore.RunSyncCtx(ctx, t.BaseURL, t.APIKey, models[0], body.ChannelName, body.Concurrency)
+		report, err := a.channelStore.RunSyncCtx(ctx, t.BaseURL, t.APIKey, models[0], body.ChannelName, body.Concurrency, body.Profile)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
 		}
+		a.applyChannelBaselineComparison(report, body.BaselineID)
+		a.channelStore.SaveReport(report)
 		writeJSON(w, http.StatusOK, report)
 		return
 	}
 
-	reports, err := a.channelStore.RunMultiSyncCtx(ctx, t.BaseURL, t.APIKey, body.ChannelName, models, body.Concurrency)
+	reports, err := a.channelStore.RunMultiSyncCtx(ctx, t.BaseURL, t.APIKey, body.ChannelName, models, body.Concurrency, body.Profile)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
+	}
+	for _, rpt := range reports {
+		a.applyChannelBaselineComparison(rpt, body.BaselineID)
+		a.channelStore.SaveReport(rpt)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"reports": reports})
 }
@@ -72,6 +88,8 @@ func (a *API) handleChannelRunStream(w http.ResponseWriter, r *http.Request) {
 		Models      []string `json:"models"`
 		ChannelName string   `json:"channel_name"`
 		Concurrency int      `json:"concurrency"`
+		Profile     string   `json:"profile"`
+		BaselineID  string   `json:"baseline_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
@@ -153,11 +171,15 @@ func (a *API) handleChannelRunStream(w http.ResponseWriter, r *http.Request) {
 	})
 
 	ctx := r.Context()
-	reports, err := a.channelStore.RunMultiStream(ctx, t.BaseURL, t.APIKey, body.ChannelName, models, body.Concurrency, writeSSE)
+	reports, err := a.channelStore.RunMultiStream(ctx, t.BaseURL, t.APIKey, body.ChannelName, models, body.Concurrency, body.Profile, writeSSE)
 	close(done)
 	if err != nil {
 		writeSSE(channeltest.StreamEvent{Type: "error", Error: err.Error()})
 		return
+	}
+	for _, rpt := range reports {
+		a.applyChannelBaselineComparison(rpt, body.BaselineID)
+		a.channelStore.SaveReport(rpt)
 	}
 
 	writeSSE(channeltest.StreamEvent{Type: "done", Reports: reports})
@@ -320,6 +342,71 @@ func (a *API) handleProbeRetry(w http.ResponseWriter, r *http.Request, reportID,
 		"score":  report.Score,
 		"checks": report.Checks,
 	})
+}
+
+// applyChannelBaselineComparison attaches baseline comparison data to the channel report.
+func (a *API) applyChannelBaselineComparison(report *channeltest.Report, baselineID string) {
+	if baselineID == "" || a.baselineStore == nil || report == nil {
+		return
+	}
+	baseline := a.baselineStore.Get(baselineID)
+	if baseline == nil || baseline.ChannelReport == nil {
+		return
+	}
+	report.CompareToBaseline(baseline.ID, baseline.Name, baseline.ChannelReport)
+}
+
+func (a *API) handleChannelKeywords(w http.ResponseWriter, r *http.Request) {
+	if a.keywordStore == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "keyword store not configured"})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, a.keywordStore.ListAll())
+	case http.MethodPost:
+		var body struct {
+			Pattern string   `json:"pattern"`
+			Channel string   `json:"channel"`
+			Scopes  []string `json:"scopes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
+			return
+		}
+		if body.Pattern == "" || body.Channel == "" || len(body.Scopes) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "pattern, channel, and scopes are required"})
+			return
+		}
+		kw := &channeltest.CustomKeyword{
+			Pattern: body.Pattern,
+			Channel: body.Channel,
+			Scopes:  body.Scopes,
+			Enabled: true,
+		}
+		a.keywordStore.Add(kw)
+		writeJSON(w, http.StatusCreated, kw)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleChannelKeywordDetail(w http.ResponseWriter, r *http.Request) {
+	if a.keywordStore == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "keyword store not configured"})
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/channel/keywords/")
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if a.keywordStore.Delete(id) {
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+	} else {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "keyword not found"})
+	}
 }
 
 func (a *API) handleChannelReport(w http.ResponseWriter, r *http.Request) {
