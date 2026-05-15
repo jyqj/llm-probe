@@ -11,6 +11,7 @@ function parseRoute(hash) {
 
   if (app === 'channel') {
     if (seg[1] === 'history') return { app, kind: 'history' };
+    if (seg[1] === 'baselines') return { app, kind: 'baselines' };
     if (seg[1] === 'run' && seg[2]) {
       const out = { app, kind: 'run', id: decodeURIComponent(seg[2]) };
       if (seg[3] === 'm' && seg[4]) out.model = decodeURIComponent(seg[4]);
@@ -22,6 +23,7 @@ function parseRoute(hash) {
 
   if (app === 'bench') {
     if (seg[1] === 'history') return { app, kind: 'history' };
+    if (seg[1] === 'baselines') return { app, kind: 'baselines' };
     if (seg[1] === 'run' && seg[2]) return { app, kind: 'run', id: decodeURIComponent(seg[2]) };
     return { app, kind: 'config' };
   }
@@ -51,6 +53,7 @@ function paintRail(route) {
     rail.appendChild(railSection('CHANNEL', [
       railLink('新建检测', '#/channel', route.kind === 'config', 'play'),
       railLink('历史记录', '#/channel/history', route.kind === 'history', 'history'),
+      railLink('基线管理', '#/channel/baselines', route.kind === 'baselines', 'compare'),
     ]));
     // active live runs
     const liveChannelIds = Object.entries(State.liveRuns)
@@ -74,6 +77,7 @@ function paintRail(route) {
     rail.appendChild(railSection('BENCHMARK', [
       railLink('新建运行', '#/bench', route.kind === 'config', 'play'),
       railLink('历史记录', '#/bench/history', route.kind === 'history', 'history'),
+      railLink('基线管理', '#/bench/baselines', route.kind === 'baselines', 'compare'),
     ]));
     const liveBenchIds = Object.entries(State.liveRuns)
       .filter(([id, r]) => (r.kind === 'bench' || r.kind === 'bench-batch') && r.state === 'running')
@@ -210,17 +214,19 @@ function routerOnChange() {
   if (route.app === 'settings') return renderSettings();
   if (route.app === 'channel') {
     if (route.kind === 'history') return renderChannelHistory();
+    if (route.kind === 'baselines') return renderMonitorBaselines(route.app);
     if (route.kind === 'run')     return renderChannelRunRoute(route.id, route.model, route.anchor);
     return renderChannelConfig();
   }
   if (route.app === 'bench') {
     if (route.kind === 'history') return renderBenchHistory();
+    if (route.kind === 'baselines') return renderMonitorBaselines(route.app);
     if (route.kind === 'run')     return renderBenchRunRoute(route.id);
     return renderBenchConfig();
   }
   if (route.app === 'monitor') {
     if (route.kind === 'alerts') return renderMonitorAlerts();
-    if (route.kind === 'baselines') return renderMonitorBaselines();
+    if (route.kind === 'baselines') return renderMonitorBaselines(route.app);
     if (route.kind === 'target') return renderMonitorTarget(route.id);
     return renderMonitorDashboard();
   }

@@ -885,10 +885,13 @@ async function renderMonitorAlerts() {
  * Baselines page — record / list / delete
  * ═══════════════════════════════════════════════════════════════════════ */
 
-async function renderMonitorBaselines() {
-  setCrumb([{ label: 'Monitor', href: '#/monitor' }, { cur: '基线管理' }],
+async function renderMonitorBaselines(callerApp) {
+  const app = callerApp || 'monitor';
+  const appLabel = { channel: 'Channel', bench: 'Benchmark', monitor: 'Monitor' }[app] || app;
+  const appHref = '#/' + app;
+  setCrumb([{ label: appLabel, href: appHref }, { cur: '基线管理' }],
     el('div', { class: 'crumb-actions' },
-      btn('录制基线', { primary: true, icon: 'add', size: 'sm', onClick: () => openBaselineDrawer() }),
+      btn('录制基线', { primary: true, icon: 'add', size: 'sm', onClick: () => openBaselineDrawer(app) }),
     ));
 
   const v = $('#view');
@@ -912,7 +915,7 @@ async function renderMonitorBaselines() {
     el('h3', null, '基线库'),
     el('span', { class: 'meta' }, baselines.length + ' 条基线'),
     el('div', { class: 'spacer' }),
-    btn('录制基线', { icon: 'add', size: 'sm', primary: true, onClick: () => openBaselineDrawer() }),
+    btn('录制基线', { icon: 'add', size: 'sm', primary: true, onClick: () => openBaselineDrawer(app) }),
   ));
 
   if (baselines.length === 0) {
@@ -976,7 +979,7 @@ function openBaselineDetailModal(b) {
   openModal('基线详情 · ' + (b.name || b.id), body);
 }
 
-async function openBaselineDrawer() {
+async function openBaselineDrawer(callerApp) {
   let name = '';
   let baseURL = '';
   let apiKey = '';
@@ -1060,7 +1063,7 @@ async function openBaselineDrawer() {
         });
         toast('基线录制完成', 'good');
         closeDrawer();
-        renderMonitorBaselines();
+        renderMonitorBaselines(callerApp);
       } catch (e) {
         status.textContent = '录制失败: ' + e.message;
         toast('录制失败', 'bad');
@@ -1076,7 +1079,7 @@ async function deleteBaseline(id) {
   try {
     await api('/api/monitor/baselines/' + id, { method: 'DELETE' });
     toast('已删除', 'good');
-    renderMonitorBaselines();
+    renderMonitorBaselines(parseRoute(location.hash).app);
   } catch (e) {
     toast('删除失败: ' + e.message, 'bad');
   }
